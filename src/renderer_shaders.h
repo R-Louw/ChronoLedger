@@ -1,0 +1,20 @@
+#pragma once
+
+#include <gio/gio.h>
+
+typedef enum {
+    RENDERER_SHADER_FULLSCREEN_VERTEX,
+    RENDERER_SHADER_COMPOSITE_FRAGMENT,
+    RENDERER_SHADER_ANTI_ALIAS_FRAGMENT,
+    RENDERER_SHADER_GEOMETRY_VERTEX,
+    RENDERER_SHADER_GEOMETRY_FRAGMENT,
+    RENDERER_SHADER_CURSOR_AA_FRAGMENT,
+    RENDERER_SHADER_CURSOR_PERSISTENCE_FRAGMENT,
+    RENDERER_SHADER_CURSOR_PHOSPHOR_FRAGMENT,
+    RENDERER_SHADER_CRT_FRAGMENT,
+    RENDERER_SHADER_PERSISTENCE_FRAGMENT,
+} RendererShaderId;
+
+char *renderer_shader_load_source(RendererShaderId shader,
+                                  gboolean is_gles,
+                                  GError **error);

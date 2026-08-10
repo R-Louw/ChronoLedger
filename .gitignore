@@ -1,0 +1,14 @@
+/build/
+/build-*/
+
+*.o
+*.a
+*.so
+*.swp
+*.swo
+*~
+
+/compile_commands.json
+/.cache/
+/.clangd/
+/*.plist

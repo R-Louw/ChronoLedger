@@ -1,0 +1,53 @@
+#pragma once
+
+#include <glib.h>
+
+typedef enum {
+    UI_CONTROL_NONE = 0,
+    UI_CONTROL_WINDOW_RESIZE,
+    UI_CONTROL_MODE,
+    UI_CONTROL_SAVE_RETRY,
+    UI_CONTROL_FOCUS_PRIMARY,
+    UI_CONTROL_FOCUS_SECONDARY,
+    UI_CONTROL_FOCUS_ADD_5,
+    UI_CONTROL_FOCUS_ADD_15,
+    UI_CONTROL_QUEUE_ROW,
+    UI_CONTROL_QUEUE_PRIMARY,
+    UI_CONTROL_QUEUE_DONE,
+    UI_CONTROL_QUEUE_DELETE,
+    UI_CONTROL_TITLE_INPUT,
+    UI_CONTROL_DURATION_INPUT,
+    UI_CONTROL_ADD_TASK,
+    UI_CONTROL_IMPORT,
+    UI_CONTROL_EXPORT,
+    UI_CONTROL_CLEAR_COMPLETED,
+    UI_CONTROL_LEDGER_ROW,
+    UI_CONTROL_LEDGER_DELETE,
+    UI_CONTROL_PRESENTATION,
+    UI_CONTROL_SLIDER,
+    UI_CONTROL_MASK,
+    UI_CONTROL_CURVATURE,
+    UI_CONTROL_CURSOR_SHADER_EFFECTS,
+    UI_CONTROL_NOTIFICATIONS,
+    UI_CONTROL_SOUND,
+    UI_CONTROL_AA,
+    UI_CONTROL_PALETTE,
+    UI_CONTROL_RESET_CALIBRATION,
+} UiControlId;
+
+typedef struct {
+    UiControlId id;
+    guint index;
+} UiControlRef;
+
+static inline UiControlRef
+ui_control_none(void)
+{
+    return (UiControlRef){UI_CONTROL_NONE, 0};
+}
+
+static inline gboolean
+ui_control_equal(UiControlRef a, UiControlRef b)
+{
+    return a.id == b.id && a.index == b.index;
+}

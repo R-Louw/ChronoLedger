@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=ChronoLedger
+Comment=Precision focus allocation instrument
+Exec=chronoledger
+Icon=io.github.chronoledger.ChronoLedger
+Terminal=false
+Categories=Utility;Office;ProjectManagement;
+Keywords=timer;focus;tasks;time;ledger;
+StartupNotify=true
+StartupWMClass=io.github.chronoledger.ChronoLedger

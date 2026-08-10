@@ -1,0 +1,47 @@
+# Changelog
+
+## 1.18.0 — 2026-08-10
+
+- Added a persistent cursor shader-effects toggle.
+- Improved cursor phosphor history and full-resolution compositing.
+- Hardened model, persistence, callback-lifetime, numeric-boundary, and OpenGL error paths.
+- Preserved four presentation profiles and event-driven native-rate cursor rendering.
+- Fixed the GCC 16 renderer history-reset declaration build failure.
+- Hardened store mutation validation and pagination/layout consistency.
+- Reduced redundant shader ALU, texture sampling, reciprocal work, and Catmull-Rom weight evaluation while preserving rendered output.
+- Corrected the final renderer split so anti-alias target allocation is declared and linked across renderer modules.
+- Preserved existing ledger/export file permissions while retaining private permissions for newly created files.
+- Kept the OpenGL renderer recoverable after transient Cairo/UI frame-preparation failures.
+- Preserved the automatic-save safety lock if an import rollback cannot restore the previous ledger.
+- Hardened shader-resource loading against invalid resource data and allocation-size overflow.
+- Split GTK input translation, dialogs, and runtime/render scheduling out of `main.c`.
+- Split scene/surface management, shared painting, input adaptation, and the Focus, Ledger, and Calibration views out of `ui.c`.
+- Split renderer context, program compilation, target lifetime, and shader loading out of `renderer.c`.
+- Split scene uploads, composed geometry, cursor rendering, and post-processing passes into renderer-private modules.
+- Moved all GLSL source into compiled `GResource` files under `data/shaders`.
+- Extracted pure responsive layout calculation from `ui.c` into `ui_layout.c`.
+- Extracted pointer mapping, bounded trail resampling, and cursor-phosphor lifetime into `cursor_state.c`.
+- Extracted presentation-profile defaults and interpolation into `shader_profile.c`.
+- Added an immutable `RendererFrameInput` contract and typed renderer draw results.
+- Moved UI surface preparation and application diagnostics out of the renderer draw path.
+- Moved CRT frame timing into renderer-owned state and preserved timing reset across interactive scheduling restarts.
+- Added a typed action/control seam and renderer-owned invalidation APIs.
+- Split flat `AppState` storage into shell, presentation, session, scene, input, and runtime substates.
+- Split the former all-purpose `app.h` into common types, application state, controller, UI, and renderer headers.
+- Made the concrete renderer representation private and replaced UI/lifecycle field access with renderer-owned APIs.
+- Narrowed snapshot construction and control hit-testing to the substates they actually consume.
+- Made `ChronoStore` opaque and replaced direct backing-array access with bounded model accessors.
+- Made `ChronoTask` opaque and replaced external field access with validated read-only accessors.
+- Added one immutable per-render view snapshot so UI and renderer code share a coherent timestamp, task selection, rows, statistics, chart window, and preference values.
+- Split notification and presentation preferences from ledger records through `ChronoPreferences` and `ChronoDocument`.
+- Made ledger import preserve local preferences by construction while complete exports retain preferences for backup compatibility.
+- Centralized transactional store replacement and rollback for import, clear, and delete operations.
+- Removed the standalone test suite and all test build targets.
+- Removed embedded benchmark, profiling, GPU-query, and diagnostic measurement paths from the production application.
+- Removed benchmark command-line options, keyboard actions, UI controls, and renderer state.
+- Removed bundled sample-data generation and maintenance controls.
+- Removed audit and porting artifacts from the source tree.
+- Removed dead state fields, unused helper functions, and the unused permissive persistence mode.
+- Renamed inherited demo/test identifiers to production terminology.
+- Retained strict legacy migration for previously persisted sample records and the former curvature setting key.
+- Preserved production startup diagnostics, persistence recovery, and the cursor shader-effects toggle.

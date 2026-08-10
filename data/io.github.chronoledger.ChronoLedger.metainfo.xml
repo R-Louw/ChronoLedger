@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.chronoledger.ChronoLedger</id>
+  <name>ChronoLedger</name>
+  <summary>Precision focus allocation instrument</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <description>
+    <p>ChronoLedger allocates focus time, records actual elapsed time, and presents estimate accuracy through a full-window phosphor instrument interface.</p>
+  </description>
+  <launchable type="desktop-id">io.github.chronoledger.ChronoLedger.desktop</launchable>
+  <provides><binary>chronoledger</binary></provides>
+  <releases>
+    <release version="1.18.0" date="2026-08-10">
+      <description>
+        <p>Establishes the production repository baseline, hardens model and renderer behavior, and reduces redundant shader computation while retaining the existing visual presentation.</p>
+      </description>
+    </release>
+  </releases>
+</component>
