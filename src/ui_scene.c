@@ -3,9 +3,7 @@
 #include "ui_views.h"
 #include "renderer.h"
 
-#include <math.h>
 #include <pango/pangocairo.h>
-#include <string.h>
 
 void
 ui_release_resources(AppState *state)

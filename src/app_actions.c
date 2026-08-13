@@ -7,7 +7,6 @@
 #include "shader_profile.h"
 
 #include <math.h>
-#include <string.h>
 
 void
 app_clamp_view_offsets(AppState *state)

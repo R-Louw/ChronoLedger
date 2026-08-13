@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <string.h>
 #include <json-glib/json-glib.h>
-#include <glib/gstdio.h>
 
 char *
 chrono_default_data_path(void)

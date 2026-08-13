@@ -80,7 +80,7 @@ draw_separator(cairo_t *cr,
     cairo_stroke(cr);
 }
 
-PangoFontDescription *
+static PangoFontDescription *
 font_description_for(AppState *state,
                      FontMode mode,
                      double size,

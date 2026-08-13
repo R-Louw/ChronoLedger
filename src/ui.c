@@ -1,20 +1,6 @@
 #include "ui.h"
-#include "app.h"
 #include "renderer.h"
-#include "app_actions.h"
-#include "app_view.h"
-#include "ui_controls.h"
 #include "ui_layout.h"
-#include "ui_painter.h"
-#include "ui_views.h"
-#include "time_parse.h"
-
-#include <math.h>
-#include <pango/pangocairo.h>
-#include <stdlib.h>
-#include <string.h>
-
-#define PI 3.14159265358979323846
 
 void
 ui_update_layout(AppState *state, int logical_width, int logical_height)

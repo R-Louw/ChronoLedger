@@ -3,18 +3,12 @@
 #include "renderer.h"
 #include "chrono_persistence.h"
 #include "app_actions.h"
-#include "app_view.h"
-#include "render_policy.h"
-#include "cursor_state.h"
 #include "shader_profile.h"
 #include "app_input.h"
 #include "app_dialogs.h"
 #include "app_runtime.h"
 
-#include <math.h>
-
 #define CHRONO_APP_ID "io.github.chronoledger.ChronoLedger"
-#define ACTIVE_SAVE_INTERVAL_SECONDS 30
 #define ANNUNCIATOR_DURATION_US (4 * G_USEC_PER_SEC)
 
 static gint64
@@ -176,8 +170,6 @@ app_save_state(AppState *state)
     return ok;
 }
 
-/* Consumes candidate. The live document changes only if the replacement can
- * be persisted; otherwise the previous ledger is restored. */
 void
 app_retry_save(AppState *state)
 {

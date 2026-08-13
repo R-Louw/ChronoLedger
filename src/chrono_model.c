@@ -856,7 +856,7 @@ chrono_store_get_completed_stats(const ChronoStore *store, ChronoStats *out_stat
     *out_stats = (ChronoStats){0};
 
     for (guint i = 0; i < store->tasks->len; ++i) {
-        ChronoTask *task = g_ptr_array_index(store->tasks, i);
+        const ChronoTask *task = g_ptr_array_index(store->tasks, i);
         if (task == NULL || task->status != CHRONO_TASK_DONE)
             continue;
         if (!task_allocation_is_valid(task))

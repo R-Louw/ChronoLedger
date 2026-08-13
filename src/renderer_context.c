@@ -4,7 +4,6 @@
 #include "app.h"
 
 #include <stddef.h>
-#include <string.h>
 
 #define CHRONO_GL_LOG_MAX_BYTES (1024 * 1024)
 

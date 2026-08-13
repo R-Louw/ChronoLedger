@@ -2,7 +2,6 @@
 #include "app.h"
 #include "chrono_persistence.h"
 #include "renderer.h"
-#include "ui.h"
 
 typedef struct {
     GtkWindow *window;
@@ -14,6 +13,8 @@ typedef struct {
     ChronoStore *imported_store;
 } ImportConfirmData;
 
+/* Consumes candidate. The live document changes only if the replacement can
+ * be persisted; otherwise the previous ledger is restored. */
 static gboolean
 commit_store_candidate(AppState *state, ChronoStore *candidate)
 {

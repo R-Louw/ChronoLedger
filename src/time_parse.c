@@ -1,7 +1,6 @@
 #include "time_parse.h"
 
 #include <errno.h>
-#include <stdlib.h>
 
 static const char *
 skip_spaces(const char *p)

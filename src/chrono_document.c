@@ -1,4 +1,4 @@
-#include "chrono_document.h"
+#include "chrono_document_private.h"
 #include "chrono_model_private.h"
 
 struct _ChronoDocument {

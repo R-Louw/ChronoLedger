@@ -2,11 +2,6 @@
 #include "ui_painter.h"
 #include "time_parse.h"
 
-#include <math.h>
-#include <stdlib.h>
-
-#define PI 3.14159265358979323846
-
 void
 draw_focus_view(AppState *state,
                 const AppViewSnapshot *view,

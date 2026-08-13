@@ -3,7 +3,7 @@
 #include "cursor_state.h"
 #include "renderer.h"
 #include "ui.h"
-#include "ui_controls.h"
+#include "ui_control_types.h"
 
 #include <math.h>
 
