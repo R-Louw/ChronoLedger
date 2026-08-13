@@ -1,0 +1,60 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    printf '%s\n' \
+        'usage: ./tools/check [memory]' \
+        '' \
+        '  (no argument)  warning-strict debug build plus tests' \
+        '  memory         ASan/UBSan debug build plus tests'
+}
+
+mode=${1:-normal}
+if [ "$#" -gt 1 ]; then
+    usage >&2
+    exit 2
+fi
+
+case "$mode" in
+    normal)
+        build_dir=build-agent
+        sanitize=none
+        ;;
+    memory)
+        build_dir=build-asan
+        sanitize=address,undefined
+        ;;
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if ! command -v meson >/dev/null 2>&1; then
+    echo 'error: meson is not installed' >&2
+    exit 127
+fi
+
+if [ -f "$build_dir/meson-private/coredata.dat" ]; then
+    meson setup "$build_dir" --reconfigure --fatal-meson-warnings \
+        -Dbuildtype=debug -Db_ndebug=false -Dwerror=true -Db_sanitize="$sanitize"
+else
+    meson setup "$build_dir" --fatal-meson-warnings \
+        -Dbuildtype=debug -Db_ndebug=false -Dwerror=true -Db_sanitize="$sanitize"
+fi
+
+meson compile -C "$build_dir"
+
+if [ "$mode" = memory ]; then
+    ASAN_OPTIONS=${ASAN_OPTIONS:-detect_leaks=1:halt_on_error=1} \
+    UBSAN_OPTIONS=${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1} \
+    G_DEBUG=${G_DEBUG:-fatal-warnings,fatal-criticals} \
+        meson test -C "$build_dir" --print-errorlogs
+else
+    G_DEBUG=${G_DEBUG:-fatal-warnings,fatal-criticals} \
+        meson test -C "$build_dir" --print-errorlogs
+fi

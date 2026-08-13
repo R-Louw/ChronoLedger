@@ -36,7 +36,7 @@
 - Split notification and presentation preferences from ledger records through `ChronoPreferences` and `ChronoDocument`.
 - Made ledger import preserve local preferences by construction while complete exports retain preferences for backup compatibility.
 - Centralized transactional store replacement and rollback for import, clear, and delete operations.
-- Removed the standalone test suite and all test build targets.
+- Replaced the former broad standalone suite with a small deterministic core contract target kept outside the production executable.
 - Removed embedded benchmark, profiling, GPU-query, and diagnostic measurement paths from the production application.
 - Removed benchmark command-line options, keyboard actions, UI controls, and renderer state.
 - Removed bundled sample-data generation and maintenance controls.

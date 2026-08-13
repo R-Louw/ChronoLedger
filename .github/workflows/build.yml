@@ -31,7 +31,16 @@ jobs:
             libjson-glib-dev
 
       - name: Configure
-        run: meson setup build --buildtype=release
+        run: meson setup build --buildtype=release -Dwerror=true
 
       - name: Compile
         run: meson compile -C build
+
+      - name: Test
+        run: meson test -C build --print-errorlogs
+
+      - name: Warning-strict debug checks
+        run: ./tools/check
+
+      - name: Sanitizer checks
+        run: ./tools/check memory

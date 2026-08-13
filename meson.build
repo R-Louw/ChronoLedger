@@ -19,15 +19,24 @@ add_project_arguments(
   language: 'c',
 )
 
+gtk_dep = dependency('gtk4', version: '>= 4.12', include_type: 'system')
+epoxy_dep = dependency('epoxy', include_type: 'system')
+cairo_dep = dependency('cairo', include_type: 'system')
+pangocairo_dep = dependency('pangocairo', include_type: 'system')
+glib_dep = dependency('glib-2.0', version: '>= 2.74', include_type: 'system')
+gio_dep = dependency('gio-2.0', version: '>= 2.74', include_type: 'system')
+json_glib_dep = dependency('json-glib-1.0', version: '>= 1.6', include_type: 'system')
+m_dep = cc.find_library('m', required: false)
+
 dependencies = [
-  dependency('gtk4', version: '>= 4.12', include_type: 'system'),
-  dependency('epoxy', include_type: 'system'),
-  dependency('cairo', include_type: 'system'),
-  dependency('pangocairo', include_type: 'system'),
-  dependency('glib-2.0', version: '>= 2.74', include_type: 'system'),
-  dependency('gio-2.0', version: '>= 2.74', include_type: 'system'),
-  dependency('json-glib-1.0', version: '>= 1.6', include_type: 'system'),
-  cc.find_library('m', required: false),
+  gtk_dep,
+  epoxy_dep,
+  cairo_dep,
+  pangocairo_dep,
+  glib_dep,
+  gio_dep,
+  json_glib_dep,
+  m_dep,
 ]
 
 resource_sources = gnome.compile_resources(
@@ -35,6 +44,16 @@ resource_sources = gnome.compile_resources(
   'data/chronoledger.gresource.xml',
   source_dir: 'data',
   c_name: 'chronoledger',
+)
+
+# glib-compile-resources emits one large C string for the bundled shaders.
+# Keep warning-strict builds useful by limiting this standards-minimum warning
+# exemption to generated code rather than weakening diagnostics project-wide.
+resource_library = static_library(
+  'chronoledger-resource-data',
+  resource_sources,
+  dependencies: gio_dep,
+  c_args: ['-Wno-overlength-strings'],
 )
 
 sources = files(
@@ -74,10 +93,13 @@ sources = files(
 
 executable(
   'chronoledger',
-  sources + resource_sources,
+  sources,
   dependencies: dependencies,
+  link_whole: resource_library,
   install: true,
 )
+
+subdir('tests')
 
 install_data(
   'data/io.github.chronoledger.ChronoLedger.desktop',

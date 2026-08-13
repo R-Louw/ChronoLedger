@@ -119,7 +119,9 @@ See [DESIGN.md](DESIGN.md) for the current module boundaries and runtime invaria
 
 ## Repository checks
 
-GitHub Actions builds the release configuration on Ubuntu for pushes and pull requests. Local Arch Linux builds remain the primary development path.
+For ordinary local validation, run `./tools/check`. Changes to code exercised by the deterministic tests that involve ownership, persistence, or teardown should also run `./tools/check memory`, which uses a separate ASan/UBSan build directory. Both commands compile the application and run deterministic model, persistence, policy, layout, snapshot, and shader-resource contract tests. The sanitizer command does not launch the GTK/GL application, so interactive callback and graphics teardown changes still need a focused display-backed smoke test.
+
+GitHub Actions checks the release build, the warning-strict debug build, and the ASan/UBSan test build on Ubuntu for pushes and pull requests. Local Arch Linux builds remain the primary development path.
 
 ## License
 
