@@ -381,6 +381,67 @@ test_render_policy_boundaries(void)
 }
 
 static void
+test_scene_history_retires(void)
+{
+    const gint64 start = 1000000;
+    gint64 deadline = 0;
+    g_assert_cmpint(chrono_scene_history_step(&deadline, 0, start), ==,
+                    CHRONO_SCENE_HISTORY_IDLE);
+    g_assert_cmpint(chrono_scene_history_deadline(0.0f, start), ==, 0);
+    g_assert_cmpint(chrono_scene_history_deadline(NAN, start), ==, 0);
+    g_assert_cmpint(chrono_scene_history_deadline(1.0f, 0), ==, 0);
+
+    const float amounts[] = {0.24f, 1.0f};
+    for (guint i = 0; i < G_N_ELEMENTS(amounts); ++i) {
+        deadline = chrono_scene_history_deadline(amounts[i], start);
+        gint64 original_deadline = deadline;
+        g_assert_cmpint(deadline, >, start);
+        g_assert_cmpint(deadline - start, <=, 6450001);
+        /* Native/cursor-only ticks must not recharge the scene tail. */
+        g_assert_cmpint(chrono_scene_history_step(&deadline, start, start + 10000), ==,
+                        CHRONO_SCENE_HISTORY_IDLE);
+        g_assert_cmpint(chrono_scene_history_step(&deadline, start,
+                        start + CHRONO_PROGRESS_MIN_UPDATE_US), ==,
+                        CHRONO_SCENE_HISTORY_DECAY);
+        g_assert_cmpint(chrono_scene_history_step(&deadline, start, deadline - 1), ==,
+                        CHRONO_SCENE_HISTORY_DECAY);
+        g_assert_cmpint(deadline, ==, original_deadline);
+        /* Cleanup is due even when the previous CRT update was very recent. */
+        g_assert_cmpint(chrono_scene_history_step(&deadline, original_deadline - 1,
+                                                 original_deadline), ==,
+                        CHRONO_SCENE_HISTORY_CLEANUP);
+        g_assert_cmpint(deadline, ==, 0);
+        g_assert_cmpint(chrono_scene_history_step(&deadline, original_deadline,
+                                                 original_deadline + 1), ==,
+                        CHRONO_SCENE_HISTORY_IDLE);
+    }
+    deadline = chrono_scene_history_deadline(1.0f, G_MAXINT64 - 10);
+    g_assert_cmpint(deadline, ==, G_MAXINT64);
+    g_assert_cmpint(chrono_scene_history_step(&deadline, G_MAXINT64 - 1, G_MAXINT64), ==,
+                    CHRONO_SCENE_HISTORY_CLEANUP);
+}
+
+static void
+test_scene_decay_uses_elapsed_time(void)
+{
+    const float amounts[] = {0.24f, 1.0f};
+    for (guint i = 0; i < G_N_ELEMENTS(amounts); ++i) {
+        float short_decay = chrono_scene_persistence_decay(amounts[i], 0.1);
+        float long_decay = chrono_scene_persistence_decay(amounts[i], 2.0);
+        g_assert_cmpfloat(long_decay, <, short_decay);
+        /* Decay must compose across time partitions, including idle gaps. */
+        g_assert_cmpfloat_with_epsilon(long_decay, pow(short_decay, 20), 0.000001);
+        double tail_seconds = (double)(chrono_scene_history_deadline(amounts[i], 1) - 1) /
+                              G_USEC_PER_SEC;
+        g_assert_cmpfloat(chrono_scene_persistence_decay(amounts[i], tail_seconds),
+                          <, 1.0f / 255.0f);
+    }
+    g_assert_cmpfloat(chrono_scene_persistence_decay(1.0f, 0.0), ==, 1.0f);
+    g_assert_cmpfloat(chrono_scene_persistence_decay(1.0f, -1.0), ==, 1.0f);
+    g_assert_cmpfloat(chrono_scene_persistence_decay(1.0f, INFINITY), ==, 0.0f);
+}
+
+static void
 test_layout_density_boundaries(void)
 {
     UiLayout layout = {.density = UI_DENSITY_TOO_SMALL};
@@ -542,6 +603,8 @@ main(int argc, char **argv)
                     test_duration_parse_and_format_boundaries);
     g_test_add_func("/policy/power-modes", test_power_policy_modes);
     g_test_add_func("/policy/render-boundaries", test_render_policy_boundaries);
+    g_test_add_func("/policy/scene-history-retires", test_scene_history_retires);
+    g_test_add_func("/policy/scene-decay-elapsed-time", test_scene_decay_uses_elapsed_time);
     g_test_add_func("/layout/density-boundaries", test_layout_density_boundaries);
     g_test_add_func("/presentation/profile-transition",
                     test_shader_profile_transition);

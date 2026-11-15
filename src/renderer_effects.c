@@ -1,4 +1,5 @@
 #include "renderer_internal.h"
+#include "render_policy.h"
 
 #include <math.h>
 
@@ -87,6 +88,7 @@ gboolean renderer_ensure_aa_targets(Renderer *renderer, int width, int height)
     renderer->final_scene_valid = FALSE;
     renderer->history_reset_requested = TRUE;
     renderer->history_valid = FALSE;
+    renderer->scene_history_deadline_us = 0;
     if (first_allocation) {
         g_print("Anti-aliasing targets: two full-resolution %s textures "
                 "plus one R8 text mask "
@@ -241,7 +243,25 @@ renderer_request_history_reset(Renderer *renderer)
     g_return_if_fail(renderer != NULL);
     renderer->history_reset_requested = TRUE;
     renderer->history_valid = FALSE;
+    renderer->scene_history_deadline_us = 0;
     renderer_invalidate_final(renderer);
+}
+
+void
+renderer_advance_scene_history(Renderer *renderer, gint64 now_us)
+{
+    g_return_if_fail(renderer != NULL);
+    switch (chrono_scene_history_step(&renderer->scene_history_deadline_us,
+                                      renderer->last_crt_update_us, now_us)) {
+    case CHRONO_SCENE_HISTORY_DECAY:
+        renderer_invalidate_final(renderer);
+        break;
+    case CHRONO_SCENE_HISTORY_CLEANUP:
+        renderer_request_history_reset(renderer);
+        break;
+    case CHRONO_SCENE_HISTORY_IDLE:
+        break;
+    }
 }
 
 void
@@ -361,6 +381,7 @@ renderer_render_persistence_pass(RendererFrameContext *context,
     if (amount <= 0.0001f) {
         renderer->history_valid = FALSE;
         renderer->history_reset_requested = TRUE;
+        renderer->scene_history_deadline_us = 0;
         return TRUE;
     }
 
@@ -403,12 +424,7 @@ renderer_render_persistence_pass(RendererFrameContext *context,
     glDisable(GL_BLEND);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    double persistence_delta = context->renderer->crt_frame_delta > 0.0
-        ? context->renderer->crt_frame_delta
-        : context->frame->frame_delta;
-    double delta = CLAMP(persistence_delta, 1.0 / 240.0, 0.1);
-    double half_life = 0.025 + (double)amount * (double)amount * 0.62;
-    float decay = (float)exp(-0.6931471805599453 * delta / half_life);
+    float decay = chrono_scene_persistence_decay(amount, renderer->crt_frame_delta);
 
     glUseProgram(renderer->persistence_program);
     glUniform1i(renderer->p_current, 0);
@@ -449,6 +465,7 @@ renderer_render_persistence_pass(RendererFrameContext *context,
     *history_enabled_out = TRUE;
     return TRUE;
 }
+
 
 typedef enum {
     PALETTE_MAP_INTENSITY = 1,

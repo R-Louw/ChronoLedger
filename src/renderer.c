@@ -1,4 +1,5 @@
 #include "renderer_internal.h"
+#include "render_policy.h"
 
 RendererDrawStatus
 renderer_draw(Renderer *renderer,
@@ -20,6 +21,8 @@ renderer_draw(Renderer *renderer,
         return RENDERER_DRAW_OK;
     if (frame->scene->logical_width <= 0 || frame->scene->logical_height <= 0)
         return RENDERER_DRAW_OK;
+
+    renderer_advance_scene_history(renderer, frame->view->monotonic_us);
 
     RendererFrameContext context = {
         .renderer = renderer,
@@ -53,6 +56,10 @@ renderer_draw(Renderer *renderer,
         renderer->filtered_scene_texture = filtered_scene_texture;
         renderer->filtered_scene_valid = TRUE;
         renderer->final_scene_valid = FALSE;
+        if (renderer->history_valid) {
+            renderer->scene_history_deadline_us = chrono_scene_history_deadline(
+                frame->presentation->settings.persistence, frame->view->monotonic_us);
+        }
     }
 
     GLuint filtered_scene_texture = renderer->filtered_scene_texture;
@@ -60,11 +67,9 @@ renderer_draw(Renderer *renderer,
     if (update_crt_base) {
         gint64 now_us = frame->view->monotonic_us;
         if (renderer->last_crt_update_us > 0) {
-            renderer->crt_frame_delta = CLAMP(
+            renderer->crt_frame_delta =
                 (double)renderer_internal_nonnegative_elapsed_us(
-                    now_us, renderer->last_crt_update_us) / G_USEC_PER_SEC,
-                1.0 / 240.0,
-                0.1);
+                    now_us, renderer->last_crt_update_us) / G_USEC_PER_SEC;
         } else {
             double native_hz = frame->monitor_refresh_hz > 1.0
                 ? frame->monitor_refresh_hz

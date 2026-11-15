@@ -53,6 +53,7 @@ void renderer_unrealize(AppState *state);
 void renderer_discard_resources(Renderer *renderer);
 void renderer_reset_frame_timing(Renderer *renderer);
 void renderer_request_history_reset(Renderer *renderer);
+void renderer_advance_scene_history(Renderer *renderer, gint64 now_us);
 void renderer_invalidate_filtered(Renderer *renderer);
 void renderer_invalidate_final(Renderer *renderer);
 gboolean renderer_filtered_scene_is_valid(const Renderer *renderer);

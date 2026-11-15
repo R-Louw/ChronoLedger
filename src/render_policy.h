@@ -20,12 +20,26 @@ gboolean chrono_progress_update_due(int previous_step,
                                      gint64 now_us);
 
 /* Interactive presentation is driven exclusively by GTK's native frame
- * clock. Full-window CRT work is event-driven; only a short profile morph can
- * deliberately request every native tick. */
+ * clock. Full-window CRT work is event-driven; decay-only frames use the
+ * progress cadence, while a short profile morph may request every tick. */
 
 gboolean chrono_render_request_needed(gboolean force_every_tick,
                                        gboolean scene_or_cache_dirty,
                                        gboolean pointer_changed,
                                        gboolean trail_active);
+
+typedef enum {
+    CHRONO_SCENE_HISTORY_IDLE,
+    CHRONO_SCENE_HISTORY_DECAY,
+    CHRONO_SCENE_HISTORY_CLEANUP,
+} ChronoSceneHistoryStep;
+
+/* Charge only on a scene change, never on a decay-only frame. After ten
+ * half-lives, a final clean render removes quantized history and stops work. */
+gint64 chrono_scene_history_deadline(float persistence, gint64 now_us);
+ChronoSceneHistoryStep chrono_scene_history_step(gint64 *deadline_us,
+                                                gint64 previous_update_us,
+                                                gint64 now_us);
+float chrono_scene_persistence_decay(float persistence, double elapsed_seconds);
 
 G_END_DECLS

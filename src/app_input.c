@@ -140,10 +140,11 @@ on_leave(GtkEventControllerMotion *controller, gpointer user_data)
     state->input.cursor_motion_count = 0;
     state->input.active_slider = SLIDER_NONE;
     cursor_state_clear(&state->input, state->renderer);
+    if (state->input.hover_control.id != UI_CONTROL_NONE)
+        renderer_invalidate_filtered(state->renderer);
     state->input.hover_control = ui_control_none();
 
-    /* Clear only the independent pointer plane. The cached application scene
-     * remains valid when the pointer leaves the window. */
+    /* Present the cleared cursor plane and any removed hover geometry. */
     if (state->shell.gl_area != NULL && renderer_is_ready(state->renderer))
         gtk_gl_area_queue_render(state->shell.gl_area);
 }

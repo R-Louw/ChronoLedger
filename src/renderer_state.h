@@ -115,6 +115,7 @@ struct _Renderer {
     gboolean filtered_scene_valid;
     gboolean final_scene_valid;
     gint64 last_crt_update_us;
+    gint64 scene_history_deadline_us;
     double crt_frame_delta;
     gboolean ready;
     char *vendor_string;

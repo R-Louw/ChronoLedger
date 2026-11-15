@@ -264,6 +264,11 @@ on_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer user_data)
     state->runtime.current_render_frame_time_us = frame_time_us;
     state->runtime.current_render_frame_counter = frame_counter;
 
+    /* Without native ticks there is no tail cleanup. Present a settled
+     * scene when asleep/backgrounded, including a queued pointer-exit frame. */
+    if (state->runtime.power_mode != CHRONO_POWER_INTERACTIVE)
+        renderer_request_history_reset(state->renderer);
+
     gboolean duplicate = state->runtime.last_draw_frame_counter >= 0 &&
                          frame_counter == state->runtime.last_draw_frame_counter &&
                          width == state->runtime.last_draw_width &&
@@ -467,6 +472,7 @@ on_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
     if (isfinite(clock_fps) && clock_fps > 1.0)
         state->runtime.frame_clock_fps = clock_fps;
 
+    renderer_advance_scene_history(state->renderer, now_us);
     gboolean scene_or_cache_dirty =
         state->scene.static_dirty || state->scene.scene_dirty ||
         renderer_needs_render(state->renderer);

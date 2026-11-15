@@ -140,8 +140,11 @@ The application scene is event-driven rather than continuously redrawn. Static a
 - scene or cache invalidation
 - pointer movement or cursor trail decay
 - cursor phosphor cleanup
+- finite scene-history decay and cleanup
 - presentation-profile transition
 - active timer progress crossing a visible step
+
+Scene changes with valid phosphor history charge a renderer-owned deadline of ten half-lives (about 0.61 seconds at Balanced persistence, at most 6.45 seconds). Decay-only frames run at the bounded 12 Hz progress cadence, reuse the filtered scene and CPU surfaces, invalidate only the final CRT cache, and never extend that deadline. Native cursor frames therefore retain the cached-base optimization even while a timer is running. The last frame resets history to remove quantized remnants, then full-window work returns to idle. Scene persistence uses real monotonic elapsed time rather than the animation-step clamp. Non-interactive draws reset history immediately because their scheduling has no native decay ticks. Context/resource release and explicit history resets discard the deadline.
 
 The cursor uses raw window coordinates so it remains aligned independently of optional scene curvature. When cursor shader effects are disabled, the raw cross and geometry trail are composited without cursor AA, history, glow, mask, or vignette.
 
