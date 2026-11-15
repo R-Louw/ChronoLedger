@@ -27,6 +27,7 @@ nonnegative_elapsed_us(gint64 end_us, gint64 start_us)
 void
 cursor_state_map_pointer(const AppSceneState *scene,
                          const ChronoPreferences *preferences,
+                         const ShaderSettings *settings,
                          double raw_x,
                          double raw_y,
                          double *scene_x,
@@ -39,7 +40,7 @@ cursor_state_map_pointer(const AppSceneState *scene,
         *scene_y = 0.0;
         return;
     }
-    if (scene == NULL || preferences == NULL ||
+    if (scene == NULL || preferences == NULL || settings == NULL ||
         !preferences->curvature_enabled) {
         *scene_x = raw_x;
         *scene_y = raw_y;
@@ -54,25 +55,41 @@ cursor_state_map_pointer(const AppSceneState *scene,
     double py = v * 2.0 - 1.0;
     double px2 = px * px;
     double py2 = py * py;
-    double source_px = px *
-        (1.0 + CHRONO_CURVATURE_STRENGTH * py2 * py2 * 0.13);
-    double source_py = py *
-        (1.0 + CHRONO_CURVATURE_STRENGTH * px2 * px2 * 0.17);
+    double strength = CLAMP(settings->curvature_strength, 0.0f, 1.0f) * CHRONO_CURVATURE_MAX;
+    double source_px = px * (1.0 + strength * py2 * py2 * 0.13);
+    double source_py = py * (1.0 + strength * px2 * px2 * 0.17);
     double mapped_x = (source_px * 0.5 + 0.5) * width;
     double mapped_y = (source_py * 0.5 + 0.5) * height;
     *scene_x = isfinite(mapped_x) ? mapped_x : raw_x;
     *scene_y = isfinite(mapped_y) ? mapped_y : raw_y;
 }
 
+double
+cursor_state_curvature_drag_value(const AppSceneState *scene, Rect track,
+                                  double raw_x, double raw_y)
+{
+    if (scene == NULL || track.width <= 0 || !isfinite(raw_x) || !isfinite(raw_y))
+        return 0;
+    double width = MAX(scene->logical_width, 1);
+    double py = raw_y / MAX(scene->logical_height, 1) * 2.0 - 1.0;
+    // source_x = raw_x + value * offset. Solving for value keeps the
+    // visible handle under the raw cursor even as dragging changes its warp.
+    double offset = (raw_x - width * .5) * CHRONO_CURVATURE_MAX * pow(py, 4) * .13;
+    double denominator = track.width - offset;
+    if (!isfinite(denominator) || denominator <= 0) return 0;
+    return CLAMP((raw_x - track.x) / denominator, 0.0, 1.0);
+}
+
 void
 cursor_state_refresh_mapping(AppInputState *input,
                              const AppSceneState *scene,
-                             const ChronoPreferences *preferences)
+                             const ChronoPreferences *preferences,
+                             const ShaderSettings *settings)
 {
     g_return_if_fail(input != NULL);
     if (!input->pointer_inside)
         return;
-    cursor_state_map_pointer(scene, preferences,
+    cursor_state_map_pointer(scene, preferences, settings,
                              input->raw_pointer_x,
                              input->raw_pointer_y,
                              &input->pointer_x,

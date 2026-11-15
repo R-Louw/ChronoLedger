@@ -5,6 +5,7 @@ core_tests = executable(
     'test_persistence.c',
     'test_timing.c',
     'test_ordering.c',
+    'test_layout.c',
     '../src/chrono_model.c',
     '../src/chrono_document.c',
     '../src/chrono_preferences.c',
@@ -14,6 +15,7 @@ core_tests = executable(
     '../src/power_policy.c',
     '../src/render_policy.c',
     '../src/ui_layout.c',
+    '../src/ui_controls.c',
     '../src/shader_profile.c',
     '../src/app_view.c',
     '../src/renderer_shaders.c',
@@ -26,6 +28,24 @@ core_tests = executable(
 test(
   'core contracts',
   core_tests,
+  env: ['G_DEBUG=fatal-warnings,fatal-criticals'],
+  protocol: 'tap',
+)
+
+# Private GTK async callbacks are exercised with completed GTasks and an owned
+# GObject standing in for the retained window. No display or GL context is
+# needed, and production code has no test hooks or alternate execution paths.
+controller_tests = executable(
+  'chronoledger-controller-tests',
+  files('test_controller.c'),
+  sources,
+  include_directories: include_directories('../src'),
+  dependencies: dependencies,
+  link_whole: resource_library,
+)
+test(
+  'controller contracts',
+  controller_tests,
   env: ['G_DEBUG=fatal-warnings,fatal-criticals'],
   protocol: 'tap',
 )

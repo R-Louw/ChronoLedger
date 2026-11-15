@@ -10,6 +10,7 @@ ui_layout_compute(UiLayout *layout,
 {
     g_return_val_if_fail(layout != NULL, FALSE);
     UiDensity previous_density = layout->density;
+    double previous_scroll = layout->calibration_scroll;
     double width = MAX(logical_width, 1);
     double height = MAX(logical_height, 1);
 
@@ -58,7 +59,7 @@ ui_layout_compute(UiLayout *layout,
     double mode_gap = 6.0;
     double mode_width = layout->density == UI_DENSITY_FULL
         ? 130.0
-        : (width - margin * 2.0 - mode_gap * 2.0) / 3.0;
+        : (width - margin * 2.0 - mode_gap * (CHRONO_MODE_COUNT - 1)) / CHRONO_MODE_COUNT;
     double mode_height = layout->density == UI_DENSITY_FULL ? 34.0 : 30.0;
     double mode_group_width = mode_width * CHRONO_MODE_COUNT +
                               mode_gap * (CHRONO_MODE_COUNT - 1);
@@ -108,7 +109,14 @@ ui_layout_compute(UiLayout *layout,
         else if (layout->queue_region.height < 548.0)
             layout->visible_queue_rows = 5;
     } else if (layout->density == UI_DENSITY_COMPACT) {
-        gboolean wide_compact = width >= 740.0 && width / height >= 1.42;
+        /* A stacked chamber needs 300px for its dial, text and action row,
+         * plus 116px for the queue and a 10px gap. Short tiles use the
+         * side-by-side composition even when their aspect ratio is narrow. */
+        const double minimum_chamber = 300.0;
+        const double minimum_queue = 116.0;
+        const double gap = 10.0;
+        gboolean wide_compact = width / height >= 1.42 ||
+            content_height < minimum_chamber + minimum_queue + gap;
         layout->focus_composition = wide_compact
             ? FOCUS_COMPOSITION_WIDE_COMPACT
             : FOCUS_COMPOSITION_STACKED;
@@ -118,7 +126,6 @@ ui_layout_compute(UiLayout *layout,
 
         if (wide_compact) {
             double field_width = width - margin * 2.0;
-            double gap = 10.0;
             double right_width = CLAMP(field_width * 0.35, 288.0, 324.0);
             double add_height = 120.0;
             layout->show_add_form = content_height >= 270.0;
@@ -140,23 +147,17 @@ ui_layout_compute(UiLayout *layout,
                                             layout->queue_region.height + 8.0,
                                             right_width, add_height};
         } else {
-            double gap = 10.0;
-            layout->show_add_form = height >= 650.0;
+            layout->show_add_form = content_height >=
+                minimum_chamber + minimum_queue + 120.0 + gap * 2.0;
             layout->add_form_stacked = layout->show_add_form;
             double add_height = layout->show_add_form ? 120.0 : 0.0;
-            double minimum_queue = height >= 820.0 ? 230.0 : 116.0;
-            double desired_chamber = CLAMP(width * 0.47, 270.0, 440.0);
+            double desired_chamber = CLAMP(width * 0.47, minimum_chamber, 440.0);
             double chamber_limit = content_height - minimum_queue - add_height -
                                    gap * (layout->show_add_form ? 2.0 : 1.0);
             double chamber_height = CLAMP(MIN(desired_chamber, chamber_limit),
-                                          200.0, 440.0);
+                                          minimum_chamber, 440.0);
             double queue_height = content_height - chamber_height - add_height -
                                   gap * (layout->show_add_form ? 2.0 : 1.0);
-            if (queue_height < 96.0) {
-                chamber_height = MAX(chamber_height - (96.0 - queue_height),
-                                     170.0);
-                queue_height = 96.0;
-            }
             layout->visible_queue_rows = queue_height >= 250.0 ? 4 :
                                          queue_height >= 170.0 ? 3 : 2;
             layout->focus_chamber = (Rect){margin, content_y,
@@ -220,11 +221,13 @@ ui_layout_compute(UiLayout *layout,
                                   chamber.height - 130.0),
                               170.0, 250.0);
             dial_x = chamber.x + 28.0;
-            dial_y = chamber.y + (chamber.height - dial_size) * 0.5;
+            /* Centre the dial above the action band, leaving room for the
+             * gauge ticks outside its nominal rectangle. */
+            dial_y = chamber.y + 40.0 + (chamber.height - 114.0 - dial_size) * 0.5;
             details_x = dial_x + dial_size + 36.0;
             details_y = chamber.y + 52.0;
             details_width = chamber.x + chamber.width - details_x - 30.0;
-            details_height = chamber.height - 106.0;
+            details_height = chamber.height - 126.0;
         } else {
             dial_size = CLAMP(MIN(chamber.width * 0.25,
                                   chamber.height - 78.0),
@@ -267,8 +270,7 @@ ui_layout_compute(UiLayout *layout,
                                      FOCUS_COMPOSITION_WIDE_COMPACT
                                  ? 60.0 + 64.0
                                  : 72.0 + 78.0) + 16.0;
-        if (layout->focus_composition == FOCUS_COMPOSITION_DESKTOP ||
-            layout->focus_composition == FOCUS_COMPOSITION_STACKED) {
+        if (layout->focus_composition == FOCUS_COMPOSITION_DESKTOP) {
             button_y = MIN(layout->focus_details.y +
                                layout->focus_details.height - 42.0,
                            chamber.y + chamber.height - 58.0);
@@ -454,29 +456,44 @@ ui_layout_compute(UiLayout *layout,
     /* Calibration is a control surface, not a continuously animated scene.
      * Keep the controls centred and bounded on 1080p-class desktops instead
      * of spending half the screen on a reference graph. */
-    double available_control_width = width - margin * 2.0;
+    double available_control_width = width - margin * 2.0 - 12.0;
     double control_width = layout->density == UI_DENSITY_FULL
         ? MIN(available_control_width, 1120.0)
         : available_control_width;
     double control_x = margin + (available_control_width - control_width) * 0.5;
+    gboolean minimal_calibration = layout->density == UI_DENSITY_MINIMAL;
+    layout->show_advanced_calibration = TRUE;
+    layout->calibration_viewport = (Rect){margin, content_y - 4.0,
+        width - margin * 2.0, content_height + 4.0};
 
     double profile_gap = 6.0;
     double profile_width = (control_width - profile_gap * 3.0) / 4.0;
     for (int i = 0; i < CHRONO_PRESENTATION_MODE_COUNT; ++i)
         layout->presentation_button[i] =
             (Rect){control_x + i * (profile_width + profile_gap),
-                   content_y, profile_width, 30.0};
+                   content_y, profile_width, minimal_calibration ? 28.0 : 30.0};
 
-    double cursor_y = content_y + 42.0;
-    layout->mask_checkbox = (Rect){control_x, cursor_y,
-                                   control_width, 24.0};
-    layout->curvature_checkbox = (Rect){control_x, cursor_y + 27.0,
-                                        control_width, 24.0};
-    layout->cursor_shader_effects_toggle =
-        (Rect){control_x, cursor_y + 54.0, control_width, 24.0};
-    cursor_y += 84.0;
+    double cursor_y = content_y + (minimal_calibration ? 34.0 : 42.0);
+    if (minimal_calibration) {
+        double toggle_width = (control_width - 12.0) / 3.0;
+        layout->mask_checkbox = (Rect){control_x, cursor_y, toggle_width, 24.0};
+        layout->curvature_checkbox = (Rect){control_x + toggle_width + 6.0,
+                                             cursor_y, toggle_width, 24.0};
+        layout->cursor_shader_effects_toggle =
+            (Rect){control_x + 2.0 * (toggle_width + 6.0), cursor_y,
+                   toggle_width, 24.0};
+        cursor_y += 40.0;
+    } else {
+        layout->mask_checkbox = (Rect){control_x, cursor_y, control_width, 24.0};
+        layout->curvature_checkbox = (Rect){control_x, cursor_y + 27.0,
+                                            control_width, 24.0};
+        layout->cursor_shader_effects_toggle =
+            (Rect){control_x, cursor_y + 54.0, control_width, 24.0};
+        cursor_y += 84.0;
+    }
     if (layout->show_advanced_calibration) {
-        double slider_spacing = 29.0;
+        cursor_y += 16.0;
+        double slider_spacing = 34.0;
         for (int i = 0; i < CHRONO_SLIDER_COUNT; ++i) {
             layout->slider_track[i] =
                 (Rect){control_x, cursor_y + i * slider_spacing,
@@ -490,37 +507,66 @@ ui_layout_compute(UiLayout *layout,
         cursor_y += 57.0;
     }
 
-    if (layout->density != UI_DENSITY_MINIMAL) {
+    {
         double aa_width = (control_width - 18.0) / 4.0;
         for (int i = 0; i < CHRONO_AA_MODE_COUNT; ++i)
             layout->aa_button[i] =
                 (Rect){control_x + i * (aa_width + 6.0),
                        cursor_y, aa_width, 25.0};
-        cursor_y += 34.0;
+        cursor_y += 50.0;
     }
 
-    int palette_columns = 4;
+    int palette_columns = minimal_calibration ? 4 : 6;
     double palette_gap = layout->density == UI_DENSITY_MINIMAL ? 3.0 : 5.0;
     double palette_width = (control_width -
                             palette_gap * (palette_columns - 1)) /
                            palette_columns;
     double palette_height = layout->density == UI_DENSITY_MINIMAL ? 24.0 : 25.0;
+    // Preserve the original two rows; the five additions start a new row.
+    int old_rows = (12 + palette_columns - 1) / palette_columns;
+    int new_columns = minimal_calibration ? 4 : 5;
     for (int i = 0; i < CHRONO_PALETTE_COUNT; ++i) {
-        int column = i % palette_columns;
-        int row = i / palette_columns;
-        layout->palette_button[i] =
-            (Rect){control_x + column * (palette_width + palette_gap),
-                   cursor_y + row * (palette_height + 4.0),
-                   palette_width, palette_height};
+        int column = i < 12 ? i % palette_columns : (i - 12) % new_columns;
+        int row = i < 12 ? i / palette_columns : old_rows + (i - 12) / new_columns;
+        double button_width = i < 12 ? palette_width :
+            (control_width - palette_gap * (new_columns - 1)) / new_columns;
+        layout->palette_button[i] = (Rect){
+            control_x + column * (button_width + palette_gap),
+            cursor_y + row * (palette_height + 4.0), button_width, palette_height};
     }
-    int palette_rows = (CHRONO_PALETTE_COUNT + palette_columns - 1) /
-                       palette_columns;
-    cursor_y += palette_rows * palette_height +
-                (palette_rows - 1) * 4.0 + 8.0;
+    int palette_rows = old_rows + (5 + new_columns - 1) / new_columns;
+    cursor_y += palette_rows * (palette_height + 4.0) + 8.0;
     double reset_width = layout->density == UI_DENSITY_MINIMAL
         ? control_width
         : MAX(control_width * 0.34, 116.0);
     layout->reset_button = (Rect){control_x, cursor_y,
-                                  reset_width, 28.0};
+                                  reset_width, minimal_calibration ? 24.0 : 28.0};
+    layout->calibration_max_scroll = MAX(0.0, cursor_y + layout->reset_button.height + 4.0 - content_bottom);
+    ui_layout_scroll_calibration(layout, previous_scroll);
     return density_changed;
+}
+
+Rect app_routine_control(const UiLayout *l, guint i)
+{
+    double x = l->status_rail.x;
+    double w = l->status_rail.width;
+    double y = l->modes[0].y + l->modes[0].height + 14;
+    /* Three navigation controls, four operation controls. */
+    if (i < 3) return (Rect){x + i * (w + 6) / 3, y, (w - 12) / 3, 30};
+    return (Rect){x + (i - 3) * (w + 6) / 4,
+        l->annunciator.y - 43, (w - 18) / 4, 30};
+}
+
+void ui_layout_scroll_calibration(UiLayout *l, double amount)
+{
+    double next = CLAMP(isfinite(amount) ? amount : 0, 0, l->calibration_max_scroll);
+    double dy = l->calibration_scroll - next;
+    l->calibration_scroll = next;
+    for (guint i = 0; i < CHRONO_PRESENTATION_MODE_COUNT; ++i) l->presentation_button[i].y += dy;
+    for (guint i = 0; i < CHRONO_SLIDER_COUNT; ++i) l->slider_track[i].y += dy;
+    for (guint i = 0; i < CHRONO_PALETTE_COUNT; ++i) l->palette_button[i].y += dy;
+    for (guint i = 0; i < CHRONO_AA_MODE_COUNT; ++i) l->aa_button[i].y += dy;
+    l->mask_checkbox.y += dy; l->curvature_checkbox.y += dy;
+    l->cursor_shader_effects_toggle.y += dy; l->notifications_toggle.y += dy;
+    l->sound_toggle.y += dy; l->reset_button.y += dy;
 }

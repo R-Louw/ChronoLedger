@@ -103,7 +103,8 @@ desired_power_mode(const AppState *state)
         .window_mapped = state->shell.window_mapped,
         .window_active = state->shell.window_active,
         .window_suspended = state->shell.window_suspended,
-        .timer_active = chrono_store_has_active_task(app_store_const(state)),
+        .timer_active = chrono_store_has_active_task(app_store_const(state)) ||
+            app_preferences_const(state)->routine_count > 0,
     };
     return chrono_power_choose_mode(inputs);
 }
@@ -113,6 +114,12 @@ app_refresh_power_policy(AppState *state)
 {
     if (state == NULL || state->shell.window == NULL)
         return;
+    if (state->shell.closing) {
+        stop_tick(state);
+        stop_low_power_source(state);
+        state->runtime.power_mode = CHRONO_POWER_SLEEP;
+        return;
+    }
 
     state->shell.window_mapped = gtk_widget_get_mapped(GTK_WIDGET(state->shell.window));
     state->shell.window_active = gtk_window_is_active(state->shell.window);
@@ -167,8 +174,8 @@ static gboolean
 on_low_power_tick(gpointer user_data)
 {
     AppState *state = user_data;
-    if (state->runtime.power_mode != CHRONO_POWER_BACKGROUND_CLOCK ||
-        !renderer_is_ready(state->renderer)) {
+    if (state->shell.closing ||
+        state->runtime.power_mode != CHRONO_POWER_BACKGROUND_CLOCK) {
         state->runtime.low_power_source_id = 0;
         return G_SOURCE_REMOVE;
     }
@@ -178,12 +185,13 @@ on_low_power_tick(gpointer user_data)
     update_focus_progress_geometry(state, now_us);
     update_dynamic_ui_state(state, now_us);
 
-    if (state->shell.window_mapped && !state->shell.window_suspended &&
+    if (renderer_is_ready(state->renderer) &&
+        state->shell.window_mapped && !state->shell.window_suspended &&
         (state->scene.static_dirty || state->scene.scene_dirty ||
          !renderer_output_is_valid(state->renderer)))
         gtk_gl_area_queue_render(state->shell.gl_area);
 
-    if (chrono_store_get_active_task(app_store(state)) == NULL) {
+    if (desired_power_mode(state) != CHRONO_POWER_BACKGROUND_CLOCK) {
         state->runtime.low_power_source_id = 0;
         app_refresh_power_policy(state);
         return G_SOURCE_REMOVE;
@@ -220,9 +228,9 @@ on_gl_realize(GtkGLArea *area, gpointer user_data)
 {
     AppState *state = user_data;
     renderer_realize(state);
+    app_refresh_power_policy(state);
     if (!renderer_is_ready(state->renderer))
         return;
-    app_refresh_power_policy(state);
     gtk_gl_area_queue_render(area);
 }
 
@@ -235,6 +243,7 @@ on_gl_unrealize(GtkGLArea *area, gpointer user_data)
     stop_low_power_source(state);
     renderer_unrealize(state);
     state->runtime.power_mode = CHRONO_POWER_SLEEP;
+    app_refresh_power_policy(state);
 }
 
 static gboolean
@@ -330,6 +339,7 @@ on_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer user_data)
         app_show_diagnostic(state, message, TRUE);
         g_free(message);
         renderer_discard_resources(state->renderer);
+        app_refresh_power_policy(state);
         return TRUE;
     }
 
@@ -345,6 +355,30 @@ on_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer user_data)
 static void
 update_timer_state(AppState *state, gint64 now_us)
 {
+    if (state->presentation.active_tab == CHRONO_MODE_ROUTINES &&
+        app_preferences(state)->routine_count > 0 &&
+        state->session.last_routine_second != g_get_real_time() / G_USEC_PER_SEC) {
+        state->session.last_routine_second = g_get_real_time() / G_USEC_PER_SEC;
+        ui_invalidate_dynamic(state);
+    }
+    if (!state->session.data_load_failed) {
+        const ChronoPreferences *p = app_preferences_const(state);
+        for (guint i = 0; i < p->routine_count; i++) {
+            const ChronoRoutine *r = &p->routines[i];
+            if (!chrono_routine_due(r, g_get_real_time() / G_USEC_PER_SEC) ||
+                state->session.routine_notified_due[i] == r->due) continue;
+            state->session.routine_notified_due[i] = r->due;
+            app_set_annunciator(state, ANNUNCIATOR_CAUTION, r->title);
+            if (p->notifications_enabled) {
+                GNotification *n = g_notification_new("Routine due");
+                g_notification_set_body(n, r->title);
+                char *id = g_strdup_printf("chronoledger-routine-%u", i);
+                g_application_send_notification(G_APPLICATION(state->shell.application), id, n);
+                g_free(id);
+                g_object_unref(n);
+            }
+        }
+    }
     ChronoTask *expired = chrono_store_update_expired(app_store(state), now_us);
     if (expired != NULL) {
         state->session.next_checkpoint_us = 0;
@@ -447,7 +481,7 @@ static gboolean
 on_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
 {
     AppState *state = user_data;
-    if (!renderer_is_ready(state->renderer) ||
+    if (state->shell.closing || !renderer_is_ready(state->renderer) ||
         state->runtime.power_mode != CHRONO_POWER_INTERACTIVE) {
         state->runtime.tick_callback_id = 0;
         app_refresh_power_policy(state);
@@ -511,6 +545,8 @@ on_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
     ShaderProfileStep profile_step = shader_profile_advance(
         &state->presentation, state->runtime.frame_delta);
     if (profile_step.settings_changed) {
+        cursor_state_refresh_mapping(&state->input, &state->scene,
+            app_preferences_const(state), &state->presentation.settings);
         renderer_invalidate_final(state->renderer);
         if (profile_step.anti_aliasing_changed)
             ui_invalidate_static(state);

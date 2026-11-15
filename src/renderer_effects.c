@@ -1,4 +1,5 @@
 #include "renderer_internal.h"
+#include "ui_palette.h"
 #include "render_policy.h"
 
 #include <math.h>
@@ -467,145 +468,6 @@ renderer_render_persistence_pass(RendererFrameContext *context,
 }
 
 
-typedef enum {
-    PALETTE_MAP_INTENSITY = 1,
-    PALETTE_MAP_HORIZONTAL = 2,
-    PALETTE_MAP_VERTICAL = 3,
-    PALETTE_MAP_DIAGONAL = 4,
-    PALETTE_MAP_RADIAL = 5,
-    PALETTE_MAP_RADIAL_INVERSE = 6,
-    PALETTE_MAP_DIAGONAL_REVERSE = 7,
-} PaletteMappingMode;
-
-typedef struct {
-    float low[3];
-    float mid[3];
-    float high[3];
-    float midpoint;
-    float source_mix;
-    int mode;
-    float spatial_mix;
-} PaletteParameters;
-
-static const PaletteParameters palette_table[CHRONO_PALETTE_COUNT] = {
-    [PALETTE_GREEN] = {
-        .low = {0.18f, 1.00f, 0.60f},
-        .mid = {0.18f, 1.00f, 0.60f},
-        .high = {0.18f, 1.00f, 0.60f},
-        .midpoint = 0.50f,
-        .source_mix = 0.12f,
-        .mode = PALETTE_MAP_INTENSITY,
-        .spatial_mix = 0.0f,
-    },
-    [PALETTE_AMBER] = {
-        .low = {1.00f, 0.54f, 0.12f},
-        .mid = {1.00f, 0.54f, 0.12f},
-        .high = {1.00f, 0.54f, 0.12f},
-        .midpoint = 0.50f,
-        .source_mix = 0.12f,
-        .mode = PALETTE_MAP_INTENSITY,
-        .spatial_mix = 0.0f,
-    },
-    [PALETTE_ICE] = {
-        .low = {0.45f, 0.82f, 1.00f},
-        .mid = {0.45f, 0.82f, 1.00f},
-        .high = {0.45f, 0.82f, 1.00f},
-        .midpoint = 0.50f,
-        .source_mix = 0.12f,
-        .mode = PALETTE_MAP_INTENSITY,
-        .spatial_mix = 0.0f,
-    },
-    [PALETTE_VECTOR] = {
-        .low = {0.03f, 0.54f, 0.18f},
-        .mid = {0.16f, 1.00f, 0.48f},
-        .high = {0.92f, 1.00f, 0.95f},
-        .midpoint = 0.70f,
-        .source_mix = 0.03f,
-        .mode = PALETTE_MAP_VERTICAL,
-        .spatial_mix = 0.38f,
-    },
-    [PALETTE_AQUA] = {
-        .low = {0.01f, 0.24f, 0.42f},
-        .mid = {0.02f, 0.90f, 1.00f},
-        .high = {0.86f, 1.00f, 1.00f},
-        .midpoint = 0.58f,
-        .source_mix = 0.03f,
-        .mode = PALETTE_MAP_HORIZONTAL,
-        .spatial_mix = 0.76f,
-    },
-    [PALETTE_SUNSET] = {
-        .low = {0.72f, 0.03f, 0.01f},
-        .mid = {1.00f, 0.34f, 0.03f},
-        .high = {1.00f, 0.94f, 0.62f},
-        .midpoint = 0.55f,
-        .source_mix = 0.02f,
-        .mode = PALETTE_MAP_HORIZONTAL,
-        .spatial_mix = 0.78f,
-    },
-    [PALETTE_PLASMA] = {
-        .low = {0.22f, 0.02f, 0.62f},
-        .mid = {1.00f, 0.06f, 0.68f},
-        .high = {0.46f, 0.94f, 1.00f},
-        .midpoint = 0.50f,
-        .source_mix = 0.02f,
-        .mode = PALETTE_MAP_DIAGONAL,
-        .spatial_mix = 0.84f,
-    },
-    [PALETTE_RADAR] = {
-        .low = {0.02f, 0.16f, 0.78f},
-        .mid = {0.04f, 1.00f, 0.30f},
-        .high = {1.00f, 0.91f, 0.12f},
-        .midpoint = 0.56f,
-        .source_mix = 0.02f,
-        .mode = PALETTE_MAP_RADIAL,
-        .spatial_mix = 0.72f,
-    },
-    [PALETTE_AURORA] = {
-        .low = {0.01f, 0.22f, 0.58f},
-        .mid = {0.05f, 1.00f, 0.56f},
-        .high = {0.72f, 0.16f, 1.00f},
-        .midpoint = 0.52f,
-        .source_mix = 0.02f,
-        .mode = PALETTE_MAP_VERTICAL,
-        .spatial_mix = 0.82f,
-    },
-    [PALETTE_CYBER] = {
-        .low = {0.00f, 0.88f, 1.00f},
-        .mid = {0.58f, 0.06f, 1.00f},
-        .high = {1.00f, 0.04f, 0.26f},
-        .midpoint = 0.50f,
-        .source_mix = 0.02f,
-        .mode = PALETTE_MAP_HORIZONTAL,
-        .spatial_mix = 0.88f,
-    },
-    [PALETTE_INFERNO] = {
-        .low = {0.54f, 0.01f, 0.02f},
-        .mid = {1.00f, 0.24f, 0.01f},
-        .high = {1.00f, 0.94f, 0.18f},
-        .midpoint = 0.54f,
-        .source_mix = 0.02f,
-        .mode = PALETTE_MAP_RADIAL_INVERSE,
-        .spatial_mix = 0.84f,
-    },
-    [PALETTE_GALAXY] = {
-        .low = {0.02f, 0.04f, 0.34f},
-        .mid = {0.58f, 0.05f, 1.00f},
-        .high = {0.04f, 0.90f, 1.00f},
-        .midpoint = 0.48f,
-        .source_mix = 0.02f,
-        .mode = PALETTE_MAP_DIAGONAL_REVERSE,
-        .spatial_mix = 0.88f,
-    },
-};
-
-static const PaletteParameters *palette_parameters(Palette palette)
-{
-    int index = (int)palette;
-    if (index < 0 || index >= CHRONO_PALETTE_COUNT)
-        index = PALETTE_GREEN;
-    return &palette_table[index];
-}
-
 static gboolean
 draw_final_crt_pass(RendererFrameContext *context,
                     const AppViewSnapshot *view,
@@ -635,7 +497,7 @@ draw_final_crt_pass(RendererFrameContext *context,
                 1.0f / MAX((float)context->frame->scene->surface_height_px, 1.0f));
     glUniform1f(renderer->u_curvature,
                 view->preferences.curvature_enabled
-                    ? CHRONO_CURVATURE_STRENGTH : 0.0f);
+                    ? settings->curvature_strength * CHRONO_CURVATURE_MAX : 0.0f);
     glUniform1f(renderer->u_glow, settings->glow);
     glUniform1f(renderer->u_vignette, settings->vignette);
     glUniform1f(renderer->u_mask_strength,

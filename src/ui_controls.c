@@ -1,4 +1,5 @@
 #include "ui_controls.h"
+#include "app_routines.h"
 
 #include <math.h>
 
@@ -48,6 +49,11 @@ ui_control_hit_test(const AppPresentationState *presentation,
         rect_contains(layout->save_status, x, y))
         return control(UI_CONTROL_SAVE_RETRY, 0);
 
+    if (presentation->active_tab == CHRONO_MODE_ROUTINES) {
+        for (guint i = 0; i < 7; i++)
+            if (rect_contains(app_routine_control(layout, i), x, y))
+                return (UiControlRef){UI_CONTROL_ROUTINE, i};
+    }
     if (presentation->active_tab == CHRONO_MODE_FOCUS) {
         if (rect_contains(layout->focus_primary, x, y))
             return control(UI_CONTROL_FOCUS_PRIMARY, 0);
@@ -94,6 +100,7 @@ ui_control_hit_test(const AppPresentationState *presentation,
                 return control(UI_CONTROL_LEDGER_ROW, i);
         }
     } else if (presentation->active_tab == CHRONO_MODE_CALIBRATION) {
+        if (!rect_contains(layout->calibration_viewport, x, y)) return ui_control_none();
         for (guint i = 0; i < CHRONO_PRESENTATION_MODE_COUNT; ++i) {
             if (rect_contains(layout->presentation_button[i], x, y))
                 return control(UI_CONTROL_PRESENTATION, i);
@@ -143,6 +150,11 @@ ui_control_get_bounds(const AppPresentationState *presentation,
     gboolean danger = FALSE;
 
     switch (control_ref.id) {
+    case UI_CONTROL_ROUTINE:
+        if (presentation->active_tab != CHRONO_MODE_ROUTINES || control_ref.index >= 7) return FALSE;
+        rect = app_routine_control(layout, control_ref.index);
+        danger = control_ref.index == 6;
+        break;
     case UI_CONTROL_WINDOW_RESIZE:
         rect = layout->window_resize;
         break;

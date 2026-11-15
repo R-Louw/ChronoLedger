@@ -1,4 +1,5 @@
 #include "app.h"
+#include "app_modal.h"
 #include "ui.h"
 #include "renderer.h"
 #include "chrono_persistence.h"
@@ -218,6 +219,8 @@ sync_proxy_text(AppState *state, const char *text)
 void
 app_begin_edit(AppState *state, EditTarget target)
 {
+    if (state->session.data_load_failed)
+        return;
     if (!state->presentation.layout.show_add_form) {
         app_set_annunciator(state, ANNUNCIATOR_INFO,
                             "Expand the tile to create a new allocation");
@@ -273,6 +276,16 @@ on_proxy_activate(GtkEntry *entry, gpointer user_data)
     }
 }
 
+void
+app_capture_presentation(AppState *state)
+{
+    app_preferences(state)->selected_tab = state->presentation.active_tab;
+    app_preferences(state)->presentation_mode = state->presentation.presentation_mode;
+    app_preferences(state)->settings = state->presentation.profile_transition_active
+        ? state->presentation.profile_target : state->presentation.settings;
+
+}
+
 static gboolean
 on_close_request(GtkWindow *window, gpointer user_data)
 {
@@ -282,13 +295,17 @@ on_close_request(GtkWindow *window, gpointer user_data)
     if (state->shell.closing)
         return FALSE;
 
+    app_capture_presentation(state);
+
     if (!state->session.data_load_failed && !app_save_state(state)) {
         app_show_alert(state, "ChronoLedger could not save before closing",
                    state->session.save_error);
         return TRUE;
     }
     state->shell.closing = TRUE;
+    app_modal_cancel(state);
     state->session.next_checkpoint_us = 0;
+    app_refresh_power_policy(state);
     return FALSE;
 }
 
@@ -396,6 +413,10 @@ activate(GtkApplication *application, gpointer user_data)
     char *startup_error = NULL;
     state->session.document = load_initial_document(state, &startup_error);
 
+    state->presentation.active_tab = app_preferences(state)->selected_tab;
+    state->presentation.presentation_mode = app_preferences(state)->presentation_mode;
+    state->presentation.settings = app_preferences(state)->settings;
+
     state->shell.window = GTK_WINDOW(gtk_application_window_new(application));
     gtk_window_set_title(state->shell.window, "ChronoLedger");
     gtk_window_set_default_size(state->shell.window, 1280, 800);
@@ -482,7 +503,8 @@ main(int argc, char **argv)
 {
     GtkApplication *application = gtk_application_new(
         CHRONO_APP_ID,
-        G_APPLICATION_DEFAULT_FLAGS);
+        g_getenv("CHRONOLEDGER_FILE") != NULL
+            ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(application, "activate", G_CALLBACK(activate), NULL);
     int status = g_application_run(G_APPLICATION(application), argc, argv);
     g_object_unref(application);

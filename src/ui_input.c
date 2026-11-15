@@ -1,7 +1,10 @@
 #include "ui.h"
 #include "app_actions.h"
+#include "app_routines.h"
 #include "renderer.h"
 #include "ui_controls.h"
+#include "ui_layout.h"
+#include "cursor_state.h"
 
 #include <math.h>
 
@@ -14,6 +17,15 @@ rect_contains(Rect rect, double x, double y)
 }
 
 
+
+static double slider_position(AppState *state, SliderId slider, double scene_x)
+{
+    Rect track = state->presentation.layout.slider_track[slider];
+    if (slider == SLIDER_CURVATURE && app_preferences_const(state)->curvature_enabled)
+        return cursor_state_curvature_drag_value(&state->scene, track,
+            state->input.raw_pointer_x, state->input.raw_pointer_y);
+    return track.width > 0 ? (scene_x - track.x) / track.width : 0;
+}
 
 static guint
 count_open_tasks(const ChronoStore *store)
@@ -164,6 +176,9 @@ ui_handle_press(AppState *state,
     ChronoTask *task = NULL;
 
     switch (control_ref.id) {
+    case UI_CONTROL_ROUTINE:
+        app_routine_command(state, control_ref.index);
+        return;
     case UI_CONTROL_MODE:
         action.type = APP_ACTION_SWITCH_MODE;
         action.data.mode = (ChronoMode)control_ref.index;
@@ -241,7 +256,7 @@ ui_handle_press(AppState *state,
         state->input.active_slider = (SliderId)control_ref.index;
         action.type = APP_ACTION_SET_SLIDER;
         action.data.slider.id = state->input.active_slider;
-        action.data.slider.normalized_value = (x - track.x) / track.width;
+        action.data.slider.normalized_value = slider_position(state, state->input.active_slider, x);
         break;
     }
     case UI_CONTROL_MASK:
@@ -329,7 +344,7 @@ ui_handle_motion(AppState *state, double x, double y)
                 .type = APP_ACTION_SET_SLIDER,
                 .data.slider = {
                     .id = state->input.active_slider,
-                    .normalized_value = (x - track.x) / track.width,
+                    .normalized_value = slider_position(state, state->input.active_slider, x),
                 },
             };
             app_dispatch_action(state, &action);
@@ -342,6 +357,13 @@ ui_handle_scroll(AppState *state, double dy)
 {
     if (state == NULL || !isfinite(dy) || fabs(dy) < 0.01)
         return;
+    if (state->presentation.active_tab == CHRONO_MODE_CALIBRATION) {
+        ui_layout_scroll_calibration(&state->presentation.layout,
+            state->presentation.layout.calibration_scroll + dy * 38.0);
+        state->input.hover_control = ui_control_none();
+        ui_invalidate_dynamic(state);
+        return;
+    }
     guint previous_queue = state->session.queue_offset;
     guint previous_ledger = state->session.ledger_offset;
     if (state->presentation.active_tab == CHRONO_MODE_FOCUS) {

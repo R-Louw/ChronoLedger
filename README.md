@@ -58,11 +58,11 @@ When `XDG_DATA_HOME` is unset, GLib resolves the normal per-user data directory.
 
 Persistence uses schema version 7 and reads versions 1–6 with a zero subsecond remainder. Pausing, switching allocations, and saving preserve fractional elapsed time. Older application versions cannot read schema 7; keep a backup before downgrading. Imports are limited to 16 MiB, 10,000 tasks, and 128 levels of JSON nesting. Every supported document must contain a `tasks` array, including an explicitly empty ledger. Duplicate JSON members, out-of-range numbers, and NUL characters are rejected before parsing can change their values.
 
-Active tasks are restored as paused because monotonic timestamps cannot be carried safely across processes or boots. Import replaces ledger records only; local notification and presentation preferences remain unchanged. Export remains a complete backup and includes both ledger records and preferences.
+Active tasks are restored as paused because monotonic timestamps cannot be carried safely across processes or boots. Import replaces ledger records only; local notification and presentation preferences remain unchanged. Export remains a complete backup and includes both ledger records and preferences. If startup cannot load the primary file, recovery is read-only until a valid replacement is explicitly imported. The original file is preserved when recovery is closed.
 
 ## Keyboard controls
 
-- `1`, `2`, `3`: switch between Focus, Ledger, and Calibration.
+- `F1`–`F4`: switch between Focus, Ledger, Calibration, and Routines, including while editing allocation fields. Modal editors keep these keys within the panel. Number keys remain ordinary input.
 - `Up`, `Down`: select an open allocation in Focus.
 - `Space` or `Enter`: start or pause the selected allocation.
 - `D`: complete the selected allocation.
@@ -70,7 +70,8 @@ Active tasks are restored as paused because monotonic timestamps cannot be carri
 - `Ctrl+I`, `Ctrl+E`: import or export.
 - `A`: cycle anti-aliasing modes.
 - `C`: toggle cursor shader effects in Calibration.
-- `R`: restore the Balanced presentation profile in Calibration.
+- `R`: restore Balanced numeric presentation settings in Calibration, preserving the selected palette and toggles.
+- Mouse wheel, `Page Up` / `Page Down`, `Home` / `End`: scroll Calibration when its controls exceed the tile height.
 - `Escape`: close the window or leave the active text editor.
 
 ## Source layout
@@ -122,10 +123,26 @@ See [DESIGN.md](DESIGN.md) for the current module boundaries and runtime invaria
 
 ## Repository checks
 
-For ordinary local validation, run `./tools/check`. Changes to code exercised by the deterministic tests that involve ownership, persistence, or teardown should also run `./tools/check memory`, which uses a separate ASan/UBSan build directory. Both commands compile the application and run deterministic model, persistence, policy, layout, snapshot, and shader-resource contract tests. The sanitizer command does not launch the GTK/GL application, so interactive callback and graphics teardown changes still need a focused display-backed smoke test.
+For ordinary local validation, run `./tools/check`. Changes to code exercised by the deterministic tests that involve ownership, persistence, or teardown should also run `./tools/check memory`, which uses a separate ASan/UBSan build directory. Both commands compile the application and run deterministic model, persistence, policy, layout, snapshot, shader-resource, and controller contract tests. The controller target injects completed dialog results without creating native windows. The sanitizer command does not launch the GTK/GL application, so interactive callbacks and graphics teardown still need a focused display-backed smoke test. See [the validation checklist](docs/VALIDATION.md).
 
 GitHub Actions checks the release build, the warning-strict debug build, and the ASan/UBSan test build on Ubuntu for pushes and pull requests. Local Arch Linux builds remain the primary development path.
 
 ## License
 
 The project metadata currently identifies ChronoLedger as proprietary and this repository does not grant an open-source license. Unless a license is added separately, no additional permission to copy, modify, or redistribute the source is granted.
+
+## Routines and restored presentation
+
+F4 opens a dedicated routine queue. Use Previous/Next to select one of up to 32 routines; New/Edit opens a schedule editor. Choose daily or an integer interval of 1–8760 hours. New routines first become due after that interval, or at next local midnight for daily schedules. A due routine remains outstanding until acknowledged; missed occurrences collapse into this one reminder. Acknowledge schedules the next interval from now, or the next local calendar day. This wall-clock schedule survives sleep and restarts; changing the system clock or timezone affects when reminders become due. Daily schedules follow local calendar days across DST. Disabled routines retain their deadline and may be due immediately when re-enabled. Changing an interval restarts its schedule; title edits retain the deadline.
+
+Routines do not consume allocation time or create completed ledger rows. Enabled due routines use the existing notification preference, once per outstanding occurrence per process (a restart may notify again). A disabled routine remains editable and removable. Presentation and routines are local preferences: ledger import preserves them, while export includes them in the full backup. Older schema-7 documents remain readable with defaults. Older binaries may discard these new optional fields when saving.
+
+Normal close saves the selected tab, presentation profile, all six manual shader values, AA and palette, alongside existing toggles. A pending profile transition saves its intended target. Window position, tiled size and compositor state are deliberately excluded. Recovery remains read-only and never overwrites malformed data.
+
+See [sound and desktop notification findings](docs/EVENTS.md) for the brief follow-up recommendations.
+
+Calibration retains the twelve original schemes and adds **Paper** (neutral phosphor), **Cobalt** (blue/gold), **Rose** (rose/cream), **Olive** (olive/lilac), and **Copper** (copper/teal). The additions form a separate row of five at ordinary widths and reflow in narrow tiles. Presentation profiles preserve the selected scheme.
+
+The Mask slider runs from no aperture texture to pronounced phosphor cells; its toggle bypasses the effect without discarding the value. Curvature has both a toggle and a strength slider, with the default matching the former fixed warp. Pointer hit testing follows the visible scene while the custom cursor remains in raw window coordinates.
+
+App-owned alerts, confirmations and routine editing use an in-window operator panel. Panels share the selected palette and glow, use ordinary GTK keyboard/text editing, trap Tab navigation, cancel on Escape, and restore prior focus. Destructive confirmations start on Cancel. Text fields remain unwarped and available after renderer failure; file pickers remain native. Timers and routines continue while panels are open.

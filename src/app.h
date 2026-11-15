@@ -18,3 +18,5 @@ void app_request_clear_completed(AppState *state);
 void app_request_delete_task(AppState *state, const char *task_id);
 void app_retry_save(AppState *state);
 void app_clamp_view_offsets(AppState *state);
+
+void app_capture_presentation(AppState *state);

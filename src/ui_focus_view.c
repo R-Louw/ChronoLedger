@@ -130,8 +130,9 @@ draw_focus_view(AppState *state,
         g_free(line2);
     }
 
-    gboolean can_act = task != NULL && task->status != CHRONO_TASK_DONE;
-    gboolean can_create = task == NULL && state->presentation.layout.show_add_form;
+    gboolean writable = !state->session.data_load_failed;
+    gboolean can_act = writable && task != NULL && task->status != CHRONO_TASK_DONE;
+    gboolean can_create = writable && task == NULL && state->presentation.layout.show_add_form;
     const char *primary = task == NULL ? "NEW" : "ENGAGE";
     if (task != NULL && task->status == CHRONO_TASK_ACTIVE)
         primary = "HOLD";
@@ -148,12 +149,12 @@ draw_focus_view(AppState *state,
     if (state->presentation.layout.focus_add_5.width > 1.0)
         draw_button_sized(state, cr, layout, state->presentation.layout.focus_add_5,
                           "+5m", FALSE, FALSE, FALSE,
-                          task != NULL && task->status != CHRONO_TASK_DONE,
+                          can_act,
                           focus_button_font);
     if (state->presentation.layout.focus_add_15.width > 1.0)
         draw_button_sized(state, cr, layout, state->presentation.layout.focus_add_15,
                           "+15m", FALSE, FALSE, FALSE,
-                          task != NULL && task->status != CHRONO_TASK_DONE,
+                          can_act,
                           focus_button_font);
 
     guint open_count = view->open_task_count;
@@ -213,13 +214,13 @@ draw_focus_view(AppState *state,
                           row_task->status == CHRONO_TASK_ACTIVE ? "HOLD" : "START",
                           FALSE,
                           row_task->status == CHRONO_TASK_ACTIVE,
-                          FALSE, row_task->status != CHRONO_TASK_EXPIRED,
+                          FALSE, writable && row_task->status != CHRONO_TASK_EXPIRED,
                           queue_button_font);
         draw_button_sized(state, cr, layout, state->presentation.layout.queue_done[i], "DONE",
-                          FALSE, FALSE, FALSE, TRUE,
+                          FALSE, FALSE, FALSE, writable,
                           queue_button_font);
         draw_button_sized(state, cr, layout, state->presentation.layout.queue_delete[i], "×",
-                          FALSE, FALSE, TRUE, TRUE,
+                          FALSE, FALSE, TRUE, writable,
                           queue_button_font);
     }
 
@@ -250,7 +251,7 @@ draw_focus_view(AppState *state,
                          "ESTIMATE", state->session.draft_duration, "25m",
                          EDIT_DURATION, view->monotonic_us);
         draw_button_sized(state, cr, layout, state->presentation.layout.add_button, "COMMIT",
-                          FALSE, TRUE, FALSE, TRUE,
+                          FALSE, TRUE, FALSE, writable,
                           state->presentation.layout.density == UI_DENSITY_FULL ? 14.0 : 13.0);
     } else if (state->presentation.layout.density == UI_DENSITY_MINIMAL) {
         draw_text(state, cr, layout, FONT_MONO,

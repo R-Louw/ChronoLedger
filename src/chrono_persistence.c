@@ -159,6 +159,7 @@ serialize_document(const ChronoDocument *document, gint64 now_monotonic_us)
     json_builder_set_member_name(builder, "cursor_shader_effects_enabled");
     json_builder_add_boolean_value(
         builder, preferences->cursor_shader_effects_enabled);
+    chrono_preferences_write_local(builder, preferences);
     json_builder_set_member_name(builder, "tasks");
     json_builder_begin_array(builder);
 
@@ -437,7 +438,7 @@ parse_document(const char *data, gssize length, GError **error)
                             &preferences.curvature_enabled)
         : get_optional_bool(root, "curvature_test_enabled", FALSE,
                             &preferences.curvature_enabled);
-    if (!curvature_valid ||
+    if (!chrono_preferences_read_local(root, &preferences) || !curvature_valid ||
         !get_optional_bool(root, "notifications_enabled", TRUE,
                            &preferences.notifications_enabled) ||
         !get_optional_bool(root, "sound_enabled", FALSE,

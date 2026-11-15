@@ -84,7 +84,8 @@ draw_ledger_view(AppState *state,
     draw_button_sized(state, cr, layout, state->presentation.layout.clear_button,
                       state->presentation.layout.density == UI_DENSITY_FULL
                           ? "CLEAR LOGGED" : "CLEAR",
-                      FALSE, FALSE, TRUE, done_count > 0, action_font);
+                      FALSE, FALSE, TRUE,
+                      done_count > 0 && !state->session.data_load_failed, action_font);
 
     if (done_count > 0) {
         guint first = MIN(state->session.ledger_offset + 1u, done_count);
@@ -171,7 +172,7 @@ draw_ledger_view(AppState *state,
 
         draw_button_sized(state, cr, layout, state->presentation.layout.ledger_delete[i],
                           "×",
-                          FALSE, FALSE, TRUE, TRUE,
+                          FALSE, FALSE, TRUE, !state->session.data_load_failed,
                           state->presentation.layout.density == UI_DENSITY_FULL ? 13.0 : 12.0);
         g_free(row_title);
         g_free(time_line);

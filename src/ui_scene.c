@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "app_routines.h"
 #include "ui_painter.h"
 #include "ui_views.h"
 #include "renderer.h"
@@ -289,7 +290,7 @@ draw_status_rail_static(AppState *state, cairo_t *cr, PangoLayout *layout)
 static void
 draw_mode_tabs(AppState *state, cairo_t *cr, PangoLayout *layout)
 {
-    const char *labels[] = {"Focus", "Ledger", "Calibration"};
+    const char *labels[] = {"F1 Focus", "F2 Ledger", "F3 Calibrate", "F4 Routines"};
     for (int i = 0; i < CHRONO_MODE_COUNT; ++i) {
         Rect rect = state->presentation.layout.modes[i];
         gboolean selected = state->presentation.active_tab == i;
@@ -388,34 +389,6 @@ draw_ledger_structure(AppState *state, cairo_t *cr, PangoLayout *layout)
 }
 
 static void
-draw_calibration_structure(AppState *state, cairo_t *cr, PangoLayout *layout)
-{
-    draw_text(state, cr, layout, FONT_MONO, "PHOSPHOR CALIBRATION", 9.5,
-              PANGO_WEIGHT_BOLD, state->presentation.layout.presentation_button[0].x,
-              state->presentation.layout.presentation_button[0].y - 28.0,
-              320.0, TEXT_LEFT, 0.32, 0.72, 0.50, 0.75);
-
-    draw_text(state, cr, layout, FONT_SANS, "Presentation profile", 11.0,
-              PANGO_WEIGHT_BOLD, state->presentation.layout.presentation_button[0].x,
-              state->presentation.layout.presentation_button[0].y - 10.0,
-              240.0, TEXT_LEFT, 0.48, 0.90, 0.63, 0.84);
-    draw_text(state, cr, layout, FONT_SANS, "Color scheme", 10.0,
-              PANGO_WEIGHT_BOLD, state->presentation.layout.palette_button[0].x,
-              state->presentation.layout.palette_button[0].y - 9.0,
-              180.0, TEXT_LEFT, 0.42, 0.80, 0.58, 0.78);
-    if (!state->presentation.layout.show_advanced_calibration &&
-        state->presentation.layout.density == UI_DENSITY_COMPACT)
-        draw_text(state, cr, layout, FONT_MONO,
-                  "EXPAND TILE FOR ADVANCED CALIBRATION",
-                  7.8, PANGO_WEIGHT_BOLD,
-                  state->presentation.layout.reset_button.x,
-                  state->presentation.layout.reset_button.y + state->presentation.layout.reset_button.height + 10.0,
-                  state->presentation.layout.reset_button.width,
-                  TEXT_CENTER,
-                  0.30, 0.64, 0.46, 0.60);
-}
-
-static void
 draw_resize_grip(AppState *state, cairo_t *cr)
 {
     Rect rect = state->presentation.layout.window_resize;
@@ -472,8 +445,6 @@ ui_render_static_layer(AppState *state)
             draw_focus_structure(state, cr, layout);
         else if (state->presentation.active_tab == CHRONO_MODE_LEDGER)
             draw_ledger_structure(state, cr, layout);
-        else
-            draw_calibration_structure(state, cr, layout);
     }
     draw_resize_grip(state, cr);
 
@@ -542,7 +513,8 @@ draw_status_rail_dynamic(AppState *state,
               120.0, TEXT_LEFT, er, eg, eb, 0.96);
 
     guint open = view->open_task_count;
-    const char *store_word = state->session.save_state == SAVE_STATE_SAVED
+    const char *store_word = state->session.data_load_failed ? "RECOVERY" :
+        state->session.save_state == SAVE_STATE_SAVED
         ? "SAVED"
         : "SAVE FAILED";
 
@@ -622,10 +594,17 @@ draw_annunciator(AppState *state,
     Rect rect = state->presentation.layout.annunciator;
     const char *text = state->session.annunciator_text;
     AnnunciatorKind kind = state->session.annunciator_kind;
-    if (text == NULL || *text == '\0' ||
+    if (state->session.data_load_failed) {
+        text = "RECOVERY IS READ-ONLY · Import a valid ledger in Ledger to resume editing";
+        kind = ANNUNCIATOR_FAILURE;
+    } else if (state->presentation.active_tab == CHRONO_MODE_FOCUS &&
+               state->session.validation_message != NULL) {
+        text = state->session.validation_message;
+        kind = ANNUNCIATOR_FAILURE;
+    } else if (text == NULL || *text == '\0' ||
         (state->session.annunciator_until_us > 0 &&
          view->monotonic_us > state->session.annunciator_until_us)) {
-        text = "READY · 1 Focus · 2 Ledger · 3 Calibration";
+        text = "READY · F1 Focus · F2 Ledger · F3 Calibration · F4 Routines";
         kind = ANNUNCIATOR_INFO;
     }
     double r = 0.38, g = 0.82, b = 0.58;
@@ -679,6 +658,8 @@ ui_render_dynamic_layer(AppState *state,
             draw_focus_view(state, view, cr, layout);
         else if (state->presentation.active_tab == CHRONO_MODE_LEDGER)
             draw_ledger_view(state, view, cr, layout);
+        else if (state->presentation.active_tab == CHRONO_MODE_ROUTINES)
+            app_routines_draw(state, view, cr, layout);
         else
             draw_calibration_view(state, view, cr, layout);
         draw_annunciator(state, view, cr, layout);

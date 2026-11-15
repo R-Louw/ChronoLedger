@@ -115,6 +115,7 @@ start_or_pause_task(AppState *state,
     }
 
     app_save_state(state);
+    app_refresh_power_policy(state);
     return TRUE;
 }
 
@@ -140,6 +141,7 @@ complete_task(AppState *state, ChronoTask *task)
     if (app_save_state(state))
         app_set_annunciator(state, ANNUNCIATOR_SUCCESS,
                             "Allocation committed to the ledger");
+    app_refresh_power_policy(state);
     return TRUE;
 }
 
@@ -277,6 +279,7 @@ slider_value(ShaderSettings *settings, SliderId slider)
         return &settings->vignette;
     case SLIDER_MASK:
         return &settings->mask_strength;
+    case SLIDER_CURVATURE: return &settings->curvature_strength;
     case SLIDER_NONE:
     default:
         return NULL;
@@ -301,7 +304,10 @@ set_slider(AppState *state, SliderId slider, double normalized_value)
     float *value = slider_value(&state->presentation.settings, slider);
     if (value == NULL)
         return;
+    state->presentation.profile_transition_active = FALSE;
     *value = (float)CLAMP(normalized_value, 0.0, 1.0);
+    cursor_state_refresh_mapping(&state->input, &state->scene,
+        app_preferences_const(state), &state->presentation.settings);
     state->presentation.presentation_mode = PRESENTATION_BALANCED;
     renderer_request_history_reset(state->renderer);
     ui_invalidate_dynamic(state);
@@ -334,7 +340,7 @@ toggle_curvature(AppState *state)
     renderer_request_history_reset(state->renderer);
     renderer_invalidate_final(state->renderer);
     cursor_state_refresh_mapping(&state->input, &state->scene,
-                                 app_preferences_const(state));
+                                 app_preferences_const(state), &state->presentation.settings);
     if (state->input.pointer_inside)
         ui_handle_motion(state, state->input.pointer_x, state->input.pointer_y);
     if (app_save_state(state)) {
@@ -379,8 +385,31 @@ task_for_action(AppState *state, const char *task_id)
 gboolean
 app_dispatch_action(AppState *state, const AppAction *action)
 {
-    if (state == NULL || action == NULL)
+    if (state == NULL || action == NULL || state->shell.closing)
         return FALSE;
+
+    if (state->session.data_load_failed) {
+        switch (action->type) {
+        case APP_ACTION_SWITCH_MODE:
+        case APP_ACTION_FINISH_EDIT:
+        case APP_ACTION_RETRY_SAVE:
+        case APP_ACTION_SELECT_ADJACENT_OPEN_TASK:
+        case APP_ACTION_SELECT_TASK:
+        case APP_ACTION_IMPORT:
+        case APP_ACTION_EXPORT:
+        case APP_ACTION_APPLY_PRESENTATION:
+        case APP_ACTION_SET_SLIDER:
+        case APP_ACTION_SET_AA:
+        case APP_ACTION_CYCLE_AA:
+        case APP_ACTION_SET_PALETTE:
+        case APP_ACTION_RESET_CALIBRATION:
+            break;
+        default:
+            app_set_annunciator(state, ANNUNCIATOR_FAILURE,
+                                "Recovery is read-only; import a valid ledger to resume editing");
+            return FALSE;
+        }
+    }
 
     switch (action->type) {
     case APP_ACTION_SWITCH_MODE:

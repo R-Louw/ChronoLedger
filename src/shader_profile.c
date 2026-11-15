@@ -12,6 +12,7 @@ shader_settings_reset(ShaderSettings *settings)
         .cursor_persistence = CHRONO_REFERENCE_CURSOR_PERSISTENCE,
         .vignette = 0.44f,
         .mask_strength = 0.36f,
+        .curvature_strength = CHRONO_CURVATURE_DEFAULT,
         .aa_mode = AA_FXAA_HIGH,
         .palette = PALETTE_GREEN,
     };
@@ -29,13 +30,15 @@ shader_profile_settings(PresentationMode mode)
         settings.glow = 0.82f;
         settings.persistence = 0.36f;
         settings.vignette = 0.58f;
-        settings.mask_strength = 0.48f;
+        settings.mask_strength = 0.55f;
+        settings.curvature_strength = 0.60f;
         break;
     case PRESENTATION_READABLE:
         settings.glow = 0.34f;
         settings.persistence = 0.10f;
         settings.vignette = 0.20f;
         settings.mask_strength = 0.14f;
+        settings.curvature_strength = 0.18f;
         break;
     case PRESENTATION_OFF:
         settings.glow = 0.0f;
@@ -43,6 +46,7 @@ shader_profile_settings(PresentationMode mode)
         settings.cursor_persistence = 0.0f;
         settings.vignette = 0.0f;
         settings.mask_strength = 0.0f;
+        settings.curvature_strength = 0.0f;
         settings.aa_mode = AA_OFF;
         break;
     default:
@@ -63,6 +67,7 @@ shader_profile_begin(AppPresentationState *presentation,
     presentation->presentation_mode = mode;
     presentation->profile_from = presentation->settings;
     presentation->profile_target = shader_profile_settings(mode);
+    presentation->profile_target.palette = presentation->settings.palette;
     presentation->profile_transition_elapsed = 0.0;
     presentation->profile_transition_duration = 0.24;
     presentation->profile_transition_active = TRUE;
@@ -108,6 +113,7 @@ shader_profile_advance(AppPresentationState *presentation,
     INTERPOLATE_SETTING(cursor_persistence);
     INTERPOLATE_SETTING(vignette);
     INTERPOLATE_SETTING(mask_strength);
+    INTERPOLATE_SETTING(curvature_strength);
 #undef INTERPOLATE_SETTING
 
     if (linear >= 0.5) {

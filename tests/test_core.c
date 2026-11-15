@@ -18,6 +18,7 @@
 void register_persistence_tests(void);
 void register_timing_tests(void);
 void register_ordering_tests(void);
+void register_layout_tests(void);
 
 static ChronoTask *
 add_task(ChronoStore *store, const char *title, gint64 estimate_seconds)
@@ -340,7 +341,7 @@ test_power_policy_modes(void)
         .window_active = TRUE,
         .timer_active = TRUE,
     };
-    g_assert_cmpint(chrono_power_choose_mode(inputs), ==, CHRONO_POWER_SLEEP);
+    g_assert_cmpint(chrono_power_choose_mode(inputs), ==, CHRONO_POWER_BACKGROUND_CLOCK);
 
     inputs.renderer_ready = TRUE;
     g_assert_cmpint(chrono_power_choose_mode(inputs), ==,
@@ -577,13 +578,117 @@ test_shader_resources_load(void)
     g_clear_error(&error);
 }
 
+static void test_calibration_saved_settings(void)
+{
+    // Existing schema-7 local state has five sliders; curvature defaults to the
+    // old fixed strength. New state stores six and all 17 palette indices.
+    const char *legacy = "{\"local_state\":{\"tab\":2,\"profile\":1,\"aa\":2,\"palette\":11,"
+        "\"sliders\":[0.7,0.24,0.27,0.44,0.36],\"routines\":[]}}";
+    JsonParser *parser = json_parser_new();
+    g_assert_true(json_parser_load_from_data(parser, legacy, -1, NULL));
+    ChronoPreferences p;
+    chrono_preferences_init_defaults(&p);
+    g_assert_true(chrono_preferences_read_local(json_node_get_object(json_parser_get_root(parser)), &p));
+    g_assert_cmpfloat(p.settings.curvature_strength, ==, CHRONO_CURVATURE_DEFAULT);
+    g_object_unref(parser);
+    for (int palette = 12; palette < CHRONO_PALETTE_COUNT; ++palette) {
+        p.settings.palette = (Palette)palette;
+        p.settings.curvature_strength = .83f;
+        JsonBuilder *b = json_builder_new();
+        json_builder_begin_object(b);
+        chrono_preferences_write_local(b, &p);
+        json_builder_end_object(b);
+        JsonNode *n = json_builder_get_root(b);
+        ChronoPreferences q;
+        chrono_preferences_init_defaults(&q);
+        g_assert_true(chrono_preferences_read_local(json_node_get_object(n), &q));
+        g_assert_cmpint(q.settings.palette, ==, palette);
+        g_assert_cmpfloat(q.settings.curvature_strength, ==, .83f);
+        JsonObject *local = json_object_get_object_member(json_node_get_object(n), "local_state");
+        JsonArray *a = json_object_get_array_member(local, "sliders");
+        json_array_remove_element(a, 5);
+        json_array_add_double_element(a, 1.1);
+        g_assert_false(chrono_preferences_read_local(json_node_get_object(n), &q));
+        json_node_free(n);
+        g_object_unref(b);
+    }
+}
+
+static void test_routines_and_local_state(void)
+{
+    ChronoDocument *d = chrono_document_new();
+    ChronoPreferences *p = chrono_document_get_preferences(d);
+    UiLayout layout = {0};
+    ui_layout_compute(&layout, 560, 360);
+    for (guint i = 0; i < 7; i++) {
+        Rect control = app_routine_control(&layout, i);
+        g_assert_cmpfloat(control.width, >=, 100);
+        g_assert_cmpfloat(control.y + control.height, <, layout.annunciator.y);
+    }
+    p->selected_tab = CHRONO_MODE_ROUTINES;
+    p->settings.glow = .123f;
+    p->settings.palette = PALETTE_AMBER;
+    p->routine_count = 1;
+    p->routines[0] = (ChronoRoutine){.title = "Water", .enabled = TRUE,
+        .hours = 2, .due = 1700000000};
+    g_assert_false(chrono_routine_due(&p->routines[0], 1699999999));
+    g_assert_true(chrono_routine_due(&p->routines[0], 1800000000));
+    gint64 next = chrono_routine_next(2, 1800000000);
+    g_assert_cmpint(next, ==, 1800007200);
+    p->routines[0].due = next;
+    g_assert_false(chrono_routine_due(&p->routines[0], 1800000000));
+    p->routines[0].enabled = FALSE;
+    g_assert_false(chrono_routine_due(&p->routines[0], next + 100));
+    GError *error = NULL;
+    char *dir = g_dir_make_tmp("chrono-routines-XXXXXX", &error);
+    g_assert_no_error(error);
+    char *path = g_build_filename(dir, "ledger.json", NULL);
+    g_assert_true(chrono_persistence_save(d, path, g_get_monotonic_time(), &error));
+    g_assert_no_error(error);
+    ChronoDocument *loaded = chrono_persistence_load(path, &error);
+    g_assert_no_error(error);
+    const ChronoPreferences *q = chrono_document_get_preferences_const(loaded);
+    g_assert_cmpint(q->selected_tab, ==, CHRONO_MODE_ROUTINES);
+    g_assert_cmpfloat(q->settings.glow, ==, p->settings.glow);
+    g_assert_cmpint(q->settings.palette, ==, PALETTE_AMBER);
+    g_assert_cmpuint(q->routine_count, ==, 1);
+    g_assert_cmpstr(q->routines[0].title, ==, "Water");
+    g_assert_cmpint(q->routines[0].due, ==, next);
+    g_assert_false(q->routines[0].enabled);
+    GFile *file = g_file_new_for_path(path);
+    ChronoStore *imported = chrono_persistence_import_file(file, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(imported);
+    chrono_store_free(imported);
+    g_object_unref(file);
+    g_assert_true(g_file_set_contents(path,
+        "{\"schema_version\":7,\"tasks\":[],\"local_state\":{\"tab\":true}}", -1, &error));
+    ChronoDocument *bad = chrono_persistence_load(path, &error);
+    g_assert_null(bad);
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    chrono_document_free(loaded);
+    chrono_document_free(d);
+    g_remove(path); g_rmdir(dir); g_free(path); g_free(dir);
+
+    GDateTime *date = g_date_time_new_local(2026, 11, 15, 15, 30, 0);
+    next = chrono_routine_next(0, g_date_time_to_unix(date));
+    GDateTime *tomorrow = g_date_time_new_from_unix_local(next);
+    g_assert_cmpint(g_date_time_get_day_of_month(tomorrow), ==, 16);
+    g_assert_cmpint(g_date_time_get_hour(tomorrow), ==, 0);
+    g_date_time_unref(date); g_date_time_unref(tomorrow);
+}
+
 int
 main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     register_persistence_tests();
     register_timing_tests();
+    g_test_add_func("/presentation/saved-calibration", test_calibration_saved_settings);
+    g_test_add_func("/routines/schedule-local-state", test_routines_and_local_state);
     register_ordering_tests();
+    register_layout_tests();
     g_test_add_func("/model/duplicate-add-is-atomic", test_duplicate_add_is_atomic);
     g_test_add_func("/model/switch-active-pauses-previous",
                     test_starting_second_task_pauses_first);

@@ -1,5 +1,11 @@
 # Repository agent notes
 
+## Hyprland development environment
+
+The owner uses Hyprland and continues other work while Codex develops. Tiling may allocate half-screen, quarter-screen, or another size instead of ChronoLedger's requested/default dimensions. This sizing alone is expected compositor behavior. Evaluate the UI within its actual allocation; investigate genuine clipping, overlap, or unusable controls.
+
+If a check needs exclusive screen space or additional windows arranged by the owner (such as one or two terminals), ask for that setup and explain why. Preserve ongoing work and the current session. Continue independent tasks while waiting. Never close a production instance to make a test convenient; use isolated temporary data and application identity.
+
 ## Before editing
 
 - Read the relevant `DESIGN.md` section before changing lifecycle, persistence/store replacement, callbacks/sources, snapshots, or renderer boundaries; verify the described behavior against the touched implementation.

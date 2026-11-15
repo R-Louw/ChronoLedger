@@ -304,9 +304,7 @@ static void append_focus_geometry(RendererFrameContext *context,
     if (dial.width <= 1.0 || dial.height <= 1.0)
         return;
 
-    const AppTaskView *task = view->has_active_task
-        ? &view->active_task
-        : view->has_expired_task ? &view->expired_task : NULL;
+    const AppTaskView *task = view->has_focus_task ? &view->focus_task : NULL;
 
     double cx = dial.x + dial.width * 0.5;
     double cy = dial.y + dial.height * 0.5;
@@ -484,6 +482,7 @@ static gboolean ensure_composed_target(Renderer *renderer, int width, int height
     renderer->final_scene_valid = FALSE;
     renderer->history_reset_requested = TRUE;
     renderer->history_valid = FALSE;
+    renderer->scene_history_deadline_us = 0;
     return TRUE;
 }
 

@@ -17,11 +17,11 @@
 #define CHRONO_COMPACT_HEIGHT 480
 #define CHRONO_MINIMAL_WIDTH 560
 #define CHRONO_MINIMAL_HEIGHT 360
-#define CHRONO_SLIDER_COUNT 5
-#define CHRONO_PALETTE_COUNT 12
+#define CHRONO_SLIDER_COUNT 6
+#define CHRONO_PALETTE_COUNT 17
 #define CHRONO_FONT_MODE_COUNT 2
 #define CHRONO_AA_MODE_COUNT 4
-#define CHRONO_MODE_COUNT 3
+#define CHRONO_MODE_COUNT 4
 #define CHRONO_MAX_SURFACE_BYTES ((gsize)384 * 1024 * 1024)
 #define CHRONO_FONT_CACHE_SLOTS 128
 #define CHRONO_CURSOR_TRAIL_SAMPLES 4096
@@ -44,7 +44,8 @@
 #define CHRONO_REFERENCE_CURSOR_CROSS_R 0.70f
 #define CHRONO_REFERENCE_CURSOR_CROSS_G 1.00f
 #define CHRONO_REFERENCE_CURSOR_CROSS_B 0.84f
-#define CHRONO_CURVATURE_STRENGTH 0.32f
+#define CHRONO_CURVATURE_MAX 0.80f
+#define CHRONO_CURVATURE_DEFAULT 0.40f
 #define CHRONO_GAUGE_EDGE_FEATHER_PX 1.15
 #define CHRONO_GAUGE_SEGMENT_LENGTH_PX 1.10
 #define CHRONO_GAUGE_MAX_SEGMENTS 2048
@@ -86,6 +87,11 @@ typedef enum {
     PALETTE_CYBER,
     PALETTE_INFERNO,
     PALETTE_GALAXY,
+    PALETTE_PAPER,
+    PALETTE_COBALT,
+    PALETTE_ROSE,
+    PALETTE_OLIVE,
+    PALETTE_COPPER,
 } Palette;
 
 typedef enum {
@@ -95,12 +101,14 @@ typedef enum {
     SLIDER_CURSOR_PERSISTENCE,
     SLIDER_VIGNETTE,
     SLIDER_MASK,
+    SLIDER_CURVATURE,
 } SliderId;
 
 typedef enum {
     CHRONO_MODE_FOCUS,
     CHRONO_MODE_LEDGER,
     CHRONO_MODE_CALIBRATION,
+    CHRONO_MODE_ROUTINES,
 } ChronoMode;
 
 typedef enum {
@@ -148,6 +156,7 @@ typedef struct {
     float cursor_persistence;
     float vignette;
     float mask_strength;
+    float curvature_strength; /* normalized; shader/mapping multiply by MAX */
     AntiAliasingMode aa_mode;
     Palette palette;
 } ShaderSettings;
@@ -219,5 +228,8 @@ typedef struct {
     Rect aa_button[CHRONO_AA_MODE_COUNT];
     Rect palette_button[CHRONO_PALETTE_COUNT];
     Rect reset_button;
+    Rect calibration_viewport;
+    double calibration_scroll;
+    double calibration_max_scroll;
     double safe_inset;
 } UiLayout;

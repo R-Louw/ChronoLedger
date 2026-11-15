@@ -233,17 +233,6 @@ void main(void)
     vec3 bright_core = mix(palette_core, vec3(core_luma), white_mix);
     color = mix(color, bright_core, hot_core * (0.18 + 0.68 * u_glow));
 
-    if (u_mask_strength > 0.0001) {
-        float triad = mod(gl_FragCoord.x, 3.0);
-        vec3 mask = triad < 1.0 ? vec3(0.78, 1.08, 0.86)
-                   : triad < 2.0 ? vec3(0.70, 1.18, 0.80)
-                                  : vec3(0.84, 0.98, 1.10);
-        float beam = triad < 1.0 ? 0.86 : (triad < 2.0 ? 1.06 : 0.90);
-        float row_dim = mod(gl_FragCoord.y, 2.0) < 1.0 ? 1.0 : 0.92;
-        float mask_protection = mix(1.0, 0.58, detail_protection);
-        color *= mix(vec3(1.0), mask * beam * row_dim,
-                     u_mask_strength * 0.92 * mask_protection);
-    }
 
     if (u_vignette > 0.0) {
         vec2 centred = uv * 2.0 - 1.0;
@@ -275,5 +264,18 @@ void main(void)
         color = mix(color, max(color, clarity_floor), clarity_restore);
     }
     color = pow(max(color, vec3(0.0)), vec3(1.0 / 2.2));
+
+    // A four-pixel aperture cell survives ordinary viewing distances. Apply
+    // after clarity/gamma so reconstruction cannot erase its contrast.
+    if (u_mask_strength > 0.0001) {
+        float amount = pow(clamp(u_mask_strength, 0.0, 1.0), 0.85);
+        float column = mod(gl_FragCoord.x, 4.0);
+        vec3 stripe = column < 1.0 ? vec3(1.0, 0.76, 0.72)
+                    : column < 2.0 ? vec3(0.74, 1.0, 0.76)
+                    : column < 3.0 ? vec3(0.76, 0.80, 1.0)
+                                   : vec3(0.30);
+        float row = mod(gl_FragCoord.y, 3.0) < 1.0 ? 0.58 : 1.0;
+        color *= mix(vec3(1.0), stripe * row, amount * 0.85);
+    }
     out_color = vec4(color, 1.0);
 }

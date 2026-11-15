@@ -2,6 +2,7 @@
 #include "app.h"
 #include "chrono_persistence.h"
 #include "renderer.h"
+#include "app_modal.h"
 
 typedef struct {
     GtkWindow *window;
@@ -18,7 +19,8 @@ typedef struct {
 static gboolean
 commit_store_candidate(AppState *state, ChronoStore *candidate)
 {
-    if (state == NULL || state->session.document == NULL || candidate == NULL) {
+    if (state == NULL || state->shell.closing || state->session.data_load_failed ||
+        state->session.document == NULL || candidate == NULL) {
         chrono_store_free(candidate);
         return FALSE;
     }
@@ -32,6 +34,7 @@ commit_store_candidate(AppState *state, ChronoStore *candidate)
 
     if (app_save_state(state)) {
         chrono_store_free(previous);
+        app_refresh_power_policy(state);
         return TRUE;
     }
 
@@ -46,6 +49,14 @@ commit_store_candidate(AppState *state, ChronoStore *candidate)
     }
     chrono_store_free(rejected);
     return FALSE;
+}
+
+static gboolean
+dialog_was_cancelled(const GError *error)
+{
+    return g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED) ||
+           g_error_matches(error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_CANCELLED) ||
+           g_error_matches(error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED);
 }
 
 static void
@@ -81,7 +92,10 @@ app_show_alert(AppState *state, const char *title, const char *detail)
     GtkAlertDialog *dialog = gtk_alert_dialog_new("%s", title);
     if (detail != NULL)
         gtk_alert_dialog_set_detail(dialog, detail);
-    gtk_alert_dialog_show(dialog, state->shell.window);
+    if (state->shell.root_overlay != NULL)
+        app_modal_choose(state, dialog, NULL, NULL);
+    else
+        gtk_alert_dialog_show(dialog, state->shell.window);
     g_object_unref(dialog);
 }
 
@@ -92,7 +106,7 @@ on_import_confirmed(GObject *source_object,
 {
     ImportConfirmData *data = user_data;
     GError *error = NULL;
-    int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source_object),
+    int choice = app_modal_choose_finish(GTK_ALERT_DIALOG(source_object),
                                                 result,
                                                 &error);
     AppState *state = g_object_get_data(G_OBJECT(data->window),
@@ -140,7 +154,7 @@ on_import_file_selected(GObject *source_object,
                                               &error);
     if (file == NULL) {
         if (error != NULL &&
-            !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
+            !dialog_was_cancelled(error) &&
             state != NULL && !state->shell.closing)
             app_show_alert(state, "Could not select import file", error->message);
         g_clear_error(&error);
@@ -182,8 +196,7 @@ on_import_file_selected(GObject *source_object,
     ImportConfirmData *confirm = g_new0(ImportConfirmData, 1);
     confirm->window = window;
     confirm->imported_store = imported;
-    gtk_alert_dialog_choose(dialog, window, NULL,
-                            on_import_confirmed, confirm);
+    app_modal_choose(state, dialog, on_import_confirmed, confirm);
     g_object_unref(dialog);
     g_free(detail);
 }
@@ -218,7 +231,7 @@ on_export_file_selected(GObject *source_object,
                                               &error);
     if (file == NULL) {
         if (error != NULL &&
-            !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED) &&
+            !dialog_was_cancelled(error) &&
             state != NULL && !state->shell.closing)
             app_show_alert(state, "Could not select export file", error->message);
         g_clear_error(&error);
@@ -233,6 +246,7 @@ on_export_file_selected(GObject *source_object,
         return;
     }
 
+    app_capture_presentation(state);
     if (chrono_persistence_export_file(state->session.document,
                                        file,
                                        g_get_monotonic_time(),
@@ -274,7 +288,7 @@ on_clear_confirmed(GObject *source_object,
     GtkWindow *window = user_data;
     AppState *state = g_object_get_data(G_OBJECT(window), "chronoledger-state");
     GError *error = NULL;
-    int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source_object),
+    int choice = app_modal_choose_finish(GTK_ALERT_DIALOG(source_object),
                                                 result,
                                                 &error);
     if (error == NULL && choice == 1 && state != NULL && !state->shell.closing) {
@@ -306,7 +320,7 @@ void
 app_request_clear_completed(AppState *state)
 {
     g_return_if_fail(state != NULL);
-    if (state->shell.closing)
+    if (state->shell.closing || state->session.data_load_failed)
         return;
     guint count = 0;
     const ChronoStore *store = app_store_const(state);
@@ -329,9 +343,7 @@ app_request_clear_completed(AppState *state)
     gtk_alert_dialog_set_buttons(dialog, buttons);
     gtk_alert_dialog_set_cancel_button(dialog, 0);
     gtk_alert_dialog_set_default_button(dialog, 0);
-    gtk_alert_dialog_choose(dialog,
-                            state->shell.window,
-                            NULL,
+    app_modal_choose(state, dialog,
                             on_clear_confirmed,
                             g_object_ref(state->shell.window));
     g_object_unref(dialog);
@@ -357,7 +369,7 @@ on_delete_confirmed(GObject *source_object,
     AppState *state = g_object_get_data(G_OBJECT(data->window),
                                         "chronoledger-state");
     GError *error = NULL;
-    int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source_object),
+    int choice = app_modal_choose_finish(GTK_ALERT_DIALOG(source_object),
                                                 result,
                                                 &error);
     if (error == NULL && choice == 1 && state != NULL && !state->shell.closing) {
@@ -387,7 +399,7 @@ void
 app_request_delete_task(AppState *state, const char *task_id)
 {
     g_return_if_fail(state != NULL);
-    if (state->shell.closing)
+    if (state->shell.closing || state->session.data_load_failed)
         return;
     ChronoTask *task = chrono_store_find_task(app_store(state), task_id);
     if (task == NULL)
@@ -405,9 +417,7 @@ app_request_delete_task(AppState *state, const char *task_id)
     DeleteConfirmData *data = g_new0(DeleteConfirmData, 1);
     data->window = g_object_ref(state->shell.window);
     data->task_id = g_strdup(task_id);
-    gtk_alert_dialog_choose(dialog,
-                            state->shell.window,
-                            NULL,
+    app_modal_choose(state, dialog,
                             on_delete_confirmed,
                             data);
     g_object_unref(dialog);

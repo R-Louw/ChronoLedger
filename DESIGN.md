@@ -6,11 +6,12 @@ This document describes the production architecture after removal of test, sampl
 
 ChronoLedger runs as one GTK application with one `GtkGLArea` and an invisible native entry used for text input. GTK object access, task mutations, persistence callbacks, and rendering coordination remain on the main thread.
 
-The visible interface is split into three modes:
+The visible interface is split into four modes:
 
 - **Focus** manages open allocations and the active timer.
 - **Ledger** summarizes completed work and exposes import, export, and clear operations.
 - **Calibration** controls presentation and renderer settings.
+- **Routines** is a bounded acknowledgment queue, independent of timed allocations.
 
 ## Module boundaries
 
@@ -34,6 +35,8 @@ GTK event translation is delegated to `app_input.c`; dialogs and transactional d
 
 `ui_painter.c` owns reusable Cairo/Pango primitives, typography, buttons, fields, sliders, toggles, status rendering, and task display formatting. `ui_input.c` owns window movement/resizing and translates typed control hits into application actions.
 
+The compact stacked Focus chamber reserves separate content and action bands. It needs at least 300 logical pixels plus a 116-pixel queue and their gap; shorter tiles use the side-by-side composition. The allocation form is shown only when it also fits that budget. Dial placement includes the gauge ticks outside its nominal box.
+
 `ui_layout.c` is a pure layout policy module. It rebuilds a complete `UiLayout` from logical dimensions and reports only whether the density class changed; it does not access GTK objects, document state, renderer state, or `AppState`.
 
 `cursor_state.c` owns inverse pointer mapping, bounded cursor-trail resampling and pruning, and cursor-phosphor lifetime. It accepts only scene, input, settings, preferences, and the opaque renderer operations needed to clear or invalidate cursor history.
@@ -52,6 +55,8 @@ Modules receive narrower state where a full aggregate is unnecessary. Snapshot c
 
 Owns user-command execution. Keyboard and pointer inputs construct the same typed `AppAction` values, so model mutations, persistence, selection, annunciators, and calibration changes have one implementation path. Action payloads are validated before execution and stale task identifiers are rejected.
 
+Protected recovery rejects ledger mutations, allocation editing, and persisted preference changes at this command boundary. Navigation, import/export, and transient presentation adjustments remain available. Destructive store replacement also checks the lock; only explicit import temporarily releases it during the synchronous save-or-rollback transaction. Recovery and form validation messages remain visible independently of transient annunciator expiry.
+
 ### `ui_controls.c`
 
 Owns typed control hit testing and highlight metadata. `UiControlRef` replaces numeric token ranges and carries a control kind plus an optional row or option index. Hit regions are nonoverlapping; slider targets remain at least 24 logical pixels high without stealing the edges of adjacent controls.
@@ -60,7 +65,7 @@ Owns typed control hit testing and highlight metadata. `UiControlRef` replaces n
 
 Builds one immutable value snapshot for each synchronous render dispatch. The snapshot captures the frame monotonic timestamp, local preferences, active/focus state, visible queue and ledger rows, completed statistics, and the bounded ledger chart window. UI and renderer code therefore consume one coherent model view instead of rescanning mutable task state at different times during the same frame. Scalar values and preferences are copied; task identifiers and titles are borrowed from opaque tasks and are valid while the owning document remains unchanged on the GTK main thread.
 
-Completed rows use the model's completion order, also used to resolve row deletion. The chart takes the latest bounded completions and displays them chronologically.
+Completed rows use the model's completion order, also used to resolve row deletion. The chart takes the latest bounded completions and displays them chronologically. Gauge geometry consumes the same focus task as the text, including a paused selected allocation.
 
 ### Renderer modules
 
@@ -114,7 +119,7 @@ Legacy compatibility is limited to recognized persisted fields. Bundled sample r
 
 ### Policy modules
 
-`power_policy.c` decides whether rendering is interactive, background-clock only, or asleep. `render_policy.c` decides whether a frame is required and limits progress-only invalidation to meaningful visual steps.
+`power_policy.c` decides whether rendering is interactive, background-clock only, or asleep. An active allocation always retains background maintenance when interactive rendering is unavailable, including after renderer failure or GL unrealize. Graphics readiness gates rendering, not expiry, notifications, or checkpoints. Closing stops both scheduling paths, and callbacks cannot restart them once the window is closing. `render_policy.c` decides whether a frame is required and limits progress-only invalidation to meaningful visual steps.
 
 ## Ownership
 
@@ -131,7 +136,7 @@ Legacy compatibility is limited to recognized persisted fields. Bundled sample r
 
 The primary file is resolved through `chrono_default_data_path()`. Writes use a bounded serialized representation and `GFile` replacement semantics. Save failures remain visible and the in-memory store remains available for retry.
 
-If the primary file cannot be read or validated, ChronoLedger enters a protected recovery state. Automatic saves are blocked until the user explicitly imports a valid replacement. Import replaces only ledger records and preserves local preferences; export includes both as a complete backup.
+If the primary file cannot be read or validated, ChronoLedger enters a protected read-only recovery state. Automatic saves and document edits are blocked until the user explicitly imports a valid replacement. A failed replacement restores the previous ledger and recovery lock. Import replaces only ledger records and preserves local preferences; export includes both as a complete backup.
 
 ## Rendering and invalidation
 
@@ -170,3 +175,21 @@ Refactoring should preserve these contracts:
 16. A renderer draw consumes borrowed const frame inputs and reports effects through typed return values rather than mutating controller/UI state.
 
 New tests and tooling should be developed outside the production target or in a clearly separated development layer rather than embedded in runtime state, UI controls, or renderer paths.
+
+## Local routines and presentation persistence
+
+`ChronoPreferences` contains bounded value-owned routine records (32, 256-byte UTF-8 titles), selected tab, profile and shader settings. Optional `local_state` in schema 7 is strictly validated; absent state uses defaults. Local routines follow the existing import-preserves-preferences/export-full-backup contract. Normal close and explicit export capture current presentation before serialization; routine commands save immediately. Geometry is compositor-owned and never persisted.
+
+`app_routines.c` presents one routine per page through the shader-composited Cairo scene and uses the shared in-window GTK operator panel for editing and removal confirmation. Panel signal/tick records are bounded by the window widget hierarchy; asynchronous confirmation records retain the parent window and resolve its object data on completion. No asynchronous path retains a raw AppState pointer. Due deadlines use Unix seconds; intervals schedule from acknowledgment, daily deadlines use next local midnight, and no task occurrences are generated. One outstanding reminder collapses missed deadlines. Existing GTK main-thread maintenance handles due announcements, reusing GNotification with stable slot IDs; notification timestamps are transient per-process suppression state. Existing background source lifetime/closing rules apply while routines exist.
+
+## Operator panels and Calibration
+
+`app_modal.c` owns a GTK overlay above the GL area, with shared palette parameters from `ui_palette.c`, instrument typography, profile/manual glow, explicit focus outlines and destructive accents. GTK entries and buttons stay crisp and unwarped, independently of the scene's mask, persistence and curvature; they remain available after renderer failure. Only panel bodies scroll in short tiles; actions stay visible. The GL widget is insensitive during a panel and the hidden entry is excluded from focus. A capture controller cycles focus inside the panel and consumes Escape, while the window shortcut controller defers all keys. Dismissal restores the previous focus. Closing cancels the panel before stopping maintenance; it does not run a nested loop or pause timers/reminders. The panel's sizing tick is widget-owned and disappears with the overlay. Native file pickers and the no-overlay GTK alert fallback are retained.
+
+Confirmations use owned `GTask` results and a finish adapter for panel versus native dialog results, preserving window-owned callback records and transactional ledger replacement. Destruction produces a cancel result, and the CSS provider is removed when its panel is released. Destructive operations initially focus Cancel, including routine deletion.
+
+The original twelve palette indices remain stable, followed by Paper, Cobalt, Rose, Olive and Copper. Profile selection and Balanced restoration preserve palette and effect toggles while restoring numeric presentation defaults. Calibration always lays out all controls; a bounded vertical viewport scrolls on wheel, Page Up/Down and Home/End. Layout computation preserves/clamps the offset across resizes. Dynamic drawing and hit testing use the same translated rectangles and viewport. At ordinary widths the additions occupy a separate row of five; narrow layouts reflow to four columns.
+
+Curvature strength is normalized to 0–1 and maps to 0–0.8 in the shader and inverse pointer lookup. Its 40% default reproduces the former fixed 0.32 warp; the toggle gates the effect without losing its setting. The raw cursor plane remains independent of curvature. Profile interpolation and manual adjustments refresh pointer mapping from the live presentation value. Curvature dragging solves the value-dependent source lookup so the moving handle stays under the raw pointer. New local state stores six sliders; old five-slider arrays retain the default curvature value.
+
+Mask now applies a four-by-three physical-pixel aperture pattern after clarity restoration and display gamma, using a power response of 0.85 and bounded attenuation. Zero and a disabled toggle both bypass the mask; maximum deliberately exposes the aperture gaps. Cursor effects use the same response only while their own effects toggle is enabled.

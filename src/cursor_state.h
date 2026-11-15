@@ -6,13 +6,18 @@ G_BEGIN_DECLS
 
 void cursor_state_map_pointer(const AppSceneState *scene,
                               const ChronoPreferences *preferences,
+                         const ShaderSettings *settings,
                               double raw_x,
                               double raw_y,
                               double *scene_x,
                               double *scene_y);
+/* Solve the moving curvature slider's position against the raw pointer. */
+double cursor_state_curvature_drag_value(const AppSceneState *scene, Rect track,
+                                          double raw_x, double raw_y);
 void cursor_state_refresh_mapping(AppInputState *input,
                                   const AppSceneState *scene,
-                                  const ChronoPreferences *preferences);
+                                  const ChronoPreferences *preferences,
+                             const ShaderSettings *settings);
 void cursor_state_clear(AppInputState *input, Renderer *renderer);
 void cursor_state_record_motion(AppInputState *input,
                                 const ShaderSettings *settings,

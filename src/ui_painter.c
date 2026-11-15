@@ -337,7 +337,7 @@ const char *
 slider_name(SliderId slider)
 {
     static const char *names[CHRONO_SLIDER_COUNT] = {
-        "Glow", "Persistence", "Cursor trail", "Vignette", "Mask strength",
+        "Glow", "Persistence", "Cursor trail", "Vignette", "Mask strength", "Curvature strength",
     };
     if (slider < SLIDER_GLOW || slider >= CHRONO_SLIDER_COUNT)
         return "Unknown";
@@ -355,6 +355,7 @@ slider_value(ShaderSettings *settings, SliderId slider)
     case SLIDER_CURSOR_PERSISTENCE: return &settings->cursor_persistence;
     case SLIDER_VIGNETTE: return &settings->vignette;
     case SLIDER_MASK: return &settings->mask_strength;
+    case SLIDER_CURVATURE: return &settings->curvature_strength;
     case SLIDER_NONE: return NULL;
     }
     return NULL;
@@ -370,7 +371,10 @@ draw_input_field(AppState *state,
                  EditTarget target,
                  gint64 now_us)
 {
-    gboolean focused = state->session.edit_target == target;
+    gboolean writable = !state->session.data_load_failed;
+    gboolean focused = writable && state->session.edit_target == target;
+    if (!writable)
+        cairo_push_group(cr);
     fill_rounded(cr, rect, 7.0, 0.015, 0.038, 0.029,
                  focused ? 0.98 : 0.82);
     stroke_rounded(cr, rect, 7.0, focused ? 1.8 : 1.0,
@@ -398,6 +402,10 @@ draw_input_field(AppState *state,
         set_source_rgba(cr, 0.58, 1.0, 0.72, 0.86);
         cairo_stroke(cr);
     }
+    if (!writable) {
+        cairo_pop_group_to_source(cr);
+        cairo_paint_with_alpha(cr, 0.35);
+    }
 }
 void
 draw_slider(AppState *state,
@@ -416,7 +424,9 @@ draw_slider(AppState *state,
               PANGO_WEIGHT_MEDIUM, track.x, track.y - 8.0,
               track.width * 0.60, TEXT_LEFT,
               0.39, 0.78, 0.56, 0.78);
-    char *value_text = g_strdup_printf("%3.0f%%", normalized * 100.0);
+    gboolean enabled = slider == SLIDER_MASK ? app_preferences_const(state)->phosphor_mask_enabled :
+        slider == SLIDER_CURVATURE ? app_preferences_const(state)->curvature_enabled : TRUE;
+    char *value_text = g_strdup_printf("%3.0f%%%s", normalized * 100.0, enabled ? "" : " · OFF");
     draw_text(state, cr, layout, FONT_MONO, value_text, 9.5,
               PANGO_WEIGHT_BOLD, track.x + track.width * 0.65,
               track.y - 8.0, track.width * 0.35,
@@ -444,6 +454,8 @@ draw_toggle(AppState *state,
             const char *label,
             gboolean enabled)
 {
+    if (state->session.data_load_failed)
+        cairo_push_group(cr);
     draw_text(state, cr, layout, FONT_SANS, label, 10.8,
               PANGO_WEIGHT_MEDIUM, rect.x + 2.0,
               rect.y + rect.height * 0.5,
@@ -465,4 +477,8 @@ draw_toggle(AppState *state,
               switch_rect.height * 0.29, 0.0, 2.0 * PI);
     set_source_rgba(cr, 0.62, 1.0, 0.72, enabled ? 0.96 : 0.52);
     cairo_fill(cr);
+    if (state->session.data_load_failed) {
+        cairo_pop_group_to_source(cr);
+        cairo_paint_with_alpha(cr, 0.35);
+    }
 }

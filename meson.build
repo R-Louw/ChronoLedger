@@ -56,14 +56,17 @@ resource_library = static_library(
   c_args: ['-Wno-overlength-strings'],
 )
 
+application_entry = files('src/main.c')
+application_dialogs = files('src/app_dialogs.c')
 sources = files(
-  'src/main.c',
   'src/app_input.c',
-  'src/app_dialogs.c',
   'src/app_runtime.c',
   'src/app_actions.c',
+  'src/app_routines.c',
   'src/app_view.c',
   'src/ui_controls.c',
+  'src/ui_palette.c',
+  'src/app_modal.c',
   'src/ui_layout.c',
   'src/cursor_state.c',
   'src/shader_profile.c',
@@ -94,6 +97,8 @@ sources = files(
 
 executable(
   'chronoledger',
+  application_entry,
+  application_dialogs,
   sources,
   dependencies: dependencies,
   link_whole: resource_library,

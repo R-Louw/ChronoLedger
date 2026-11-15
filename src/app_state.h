@@ -16,6 +16,7 @@ typedef struct {
     GtkWindow *window;
     GtkGLArea *gl_area;
     GtkWidget *root_overlay;
+    GtkWidget *modal_overlay;
     GtkWidget *diagnostic_overlay;
     GtkLabel *diagnostic_label;
     GtkSpinner *diagnostic_spinner;
@@ -50,6 +51,9 @@ typedef struct {
     char *selected_task_id;
     guint queue_offset;
     guint ledger_offset;
+    guint routine_index;
+    gint64 last_routine_second;
+    gint64 routine_notified_due[CHRONO_MAX_ROUTINES];
 
     EditTarget edit_target;
     gboolean input_syncing;

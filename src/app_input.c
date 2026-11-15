@@ -4,6 +4,7 @@
 #include "renderer.h"
 #include "ui.h"
 #include "ui_control_types.h"
+#include "ui_layout.h"
 
 #include <math.h>
 
@@ -23,7 +24,7 @@ update_pointer_now(AppState *state, double raw_x, double raw_y)
     double scene_x = raw_x;
     double scene_y = raw_y;
     cursor_state_map_pointer(&state->scene,
-                             app_preferences_const(state),
+                             app_preferences_const(state), &state->presentation.settings,
                              raw_x, raw_y,
                              &scene_x, &scene_y);
     ui_handle_motion(state, scene_x, scene_y);
@@ -217,7 +218,25 @@ on_key_pressed(GtkEventControllerKey *controller,
     (void)controller;
     (void)keycode;
     AppState *state = user_data;
+    if (state->shell.modal_overlay != NULL) return FALSE;
     AppAction action = {0};
+
+    if (state->presentation.active_tab == CHRONO_MODE_CALIBRATION &&
+        (keyval == GDK_KEY_Page_Down || keyval == GDK_KEY_Page_Up ||
+         keyval == GDK_KEY_Home || keyval == GDK_KEY_End)) {
+        UiLayout *l = &state->presentation.layout;
+        double y = keyval == GDK_KEY_Home ? 0 : keyval == GDK_KEY_End ? l->calibration_max_scroll :
+            l->calibration_scroll + (keyval == GDK_KEY_Page_Down ? 1 : -1) * l->calibration_viewport.height * .8;
+        ui_layout_scroll_calibration(l, y);
+        state->input.hover_control = ui_control_none();
+        ui_invalidate_dynamic(state);
+        return TRUE;
+    }
+    if (keyval >= GDK_KEY_F1 && keyval <= GDK_KEY_F4) {
+        action.type = APP_ACTION_SWITCH_MODE;
+        action.data.mode = (ChronoMode)(keyval - GDK_KEY_F1);
+        return app_dispatch_action(state, &action);
+    }
 
     if (state->session.edit_target != EDIT_NONE) {
         if (keyval == GDK_KEY_Escape) {
@@ -249,12 +268,6 @@ on_key_pressed(GtkEventControllerKey *controller,
     case GDK_KEY_Escape:
         gtk_window_close(state->shell.window);
         return TRUE;
-    case GDK_KEY_1:
-    case GDK_KEY_2:
-    case GDK_KEY_3:
-        action.type = APP_ACTION_SWITCH_MODE;
-        action.data.mode = (ChronoMode)(keyval - GDK_KEY_1);
-        break;
     case GDK_KEY_Up:
     case GDK_KEY_Down:
         if (state->presentation.active_tab != CHRONO_MODE_FOCUS)

@@ -3,10 +3,7 @@
 ChronoPowerMode
 chrono_power_choose_mode(ChronoPowerInputs inputs)
 {
-    if (!inputs.renderer_ready)
-        return CHRONO_POWER_SLEEP;
-
-    if (inputs.window_mapped && inputs.window_active &&
+    if (inputs.renderer_ready && inputs.window_mapped && inputs.window_active &&
         !inputs.window_suspended)
         return CHRONO_POWER_INTERACTIVE;
 

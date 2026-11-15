@@ -2,11 +2,22 @@
 
 ## Unreleased
 
+- Unify alerts, confirmations and routine editing in palette-aware in-window operator panels with modal input isolation, focus restoration and Cancel-first destructive actions.
+- Add Paper, Cobalt, Rose, Olive and Copper schemes below the original twelve; preserve palette selection across presentation profiles.
+- Give Mask a visible aperture progression after clarity restoration and restore persisted curvature strength with matching pointer mapping.
+- Keep every Calibration control reachable through a clipped, scrollable surface in short tiles; retain old five-slider saved settings.
+
+- Reserve separate Focus content and action space in compact tiles, showing the allocation form only when it fits.
 - Retire scene phosphor history with elapsed-time decay and a final cleanup frame, preserving event-driven idle rendering after pointer exit.
 
+- Make unreadable-ledger recovery read-only until explicit import succeeds.
 - Reject missing task arrays, duplicate JSON members, numeric overflow, embedded NULs, and excessive nesting before loading or importing data.
 - Introduce schema 7 to retain fractional elapsed time across pauses, task switches, and saves; migrate versions 1–6 with a zero remainder.
+- Keep expiry, notifications, and checkpoints running independently of renderer availability, and stop maintenance sources on close.
 - Order completed rows and charts by completion time and use that same order for row actions.
+- Preserve paused focus progress, clear hover geometry on pointer exit, and let manual sliders interrupt profile transitions.
+- Handle canceled file dialogs quietly, display form validation errors, and fit Calibration controls within the supported minimum window.
+- Add persistence, timing, completion-index ownership, layout/hit-region, and controller callback regressions outside the production target.
 
 ## 1.18.0 — 2026-08-10
 
