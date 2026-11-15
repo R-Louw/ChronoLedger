@@ -139,6 +139,8 @@ Routines do not consume allocation time or create completed ledger rows. Enabled
 
 Normal close saves the selected tab, presentation profile, all six manual shader values, AA and palette, alongside existing toggles. A pending profile transition saves its intended target. Window position, tiled size and compositor state are deliberately excluded. Recovery remains read-only and never overwrites malformed data.
 
+See [durable installation and rollback](docs/INSTALLATION.md). Run `./tools/promote` to validate and promote a future working release without disrupting an already running instance.
+
 See [sound and desktop notification findings](docs/EVENTS.md) for the brief follow-up recommendations.
 
 Calibration retains the twelve original schemes and adds **Paper** (neutral phosphor), **Cobalt** (blue/gold), **Rose** (rose/cream), **Olive** (olive/lilac), and **Copper** (copper/teal). The additions form a separate row of five at ordinary widths and reflow in narrow tiles. Presentation profiles preserve the selected scheme.
