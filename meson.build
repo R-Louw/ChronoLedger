@@ -86,6 +86,7 @@ sources = files(
   'src/chrono_preferences.c',
   'src/chrono_document.c',
   'src/chrono_persistence.c',
+  'src/chrono_json.c',
   'src/time_parse.c',
   'src/power_policy.c',
   'src/render_policy.c',

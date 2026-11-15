@@ -9,6 +9,7 @@ struct _ChronoTask {
     gint64 estimate_seconds;
     gint64 allocated_seconds;
     gint64 elapsed_seconds;
+    gint64 elapsed_remainder_us;
     gint64 remaining_seconds;
     ChronoTaskStatus status;
     gint64 active_started_monotonic_us;
@@ -18,6 +19,8 @@ struct _ChronoTask {
 
 struct _ChronoStore {
     GPtrArray *tasks;
+    GPtrArray *completed_tasks; /* Borrowed task pointers; no element destructor. */
+    gboolean completed_order_dirty;
 };
 
 static gboolean
@@ -41,6 +44,9 @@ task_allocation_is_valid(const ChronoTask *task)
         task->allocated_seconds < task->estimate_seconds ||
         task->elapsed_seconds < 0 ||
         task->remaining_seconds < 0 ||
+        task->elapsed_remainder_us < 0 ||
+        task->elapsed_remainder_us >= G_USEC_PER_SEC ||
+        (task->remaining_seconds == 0 && task->elapsed_remainder_us != 0) ||
         task->elapsed_seconds > task->allocated_seconds ||
         task->remaining_seconds > task->allocated_seconds ||
         task->allocated_seconds - task->elapsed_seconds !=
@@ -134,6 +140,8 @@ chrono_store_new(void)
 {
     ChronoStore *store = g_new0(ChronoStore, 1);
     store->tasks = g_ptr_array_new_with_free_func((GDestroyNotify)chrono_task_free);
+    store->completed_tasks = g_ptr_array_new();
+    store->completed_order_dirty = TRUE;
     return store;
 }
 
@@ -165,6 +173,7 @@ chrono_store_free(ChronoStore *store)
 {
     if (store == NULL)
         return;
+    g_clear_pointer(&store->completed_tasks, g_ptr_array_unref);
     g_clear_pointer(&store->tasks, g_ptr_array_unref);
     g_free(store);
 }
@@ -202,6 +211,47 @@ chrono_task_is_valid(const ChronoTask *task)
             task->completed_at_unix >= task->created_at_unix);
 }
 
+static gint
+compare_completions(gconstpointer left, gconstpointer right)
+{
+    const ChronoTask *a = *(const ChronoTask *const *)left;
+    const ChronoTask *b = *(const ChronoTask *const *)right;
+    if (a->completed_at_unix != b->completed_at_unix)
+        return a->completed_at_unix > b->completed_at_unix ? -1 : 1;
+    if (a->created_at_unix != b->created_at_unix)
+        return a->created_at_unix > b->created_at_unix ? -1 : 1;
+    return g_strcmp0(a->id, b->id);
+}
+
+const ChronoTask *
+chrono_store_get_completed_task_at_const(const ChronoStore *store, guint index)
+{
+    if (!store_has_task_array(store))
+        return NULL;
+    if (store->completed_order_dirty) {
+        /* Logical constness: rebuilding an index never changes task values.
+         * Invalidate before freeing tasks; stale pointers are only cleared,
+         * never dereferenced, when rebuilding this borrowed-pointer cache. */
+        ChronoStore *cache = (ChronoStore *)store;
+        g_ptr_array_set_size(cache->completed_tasks, 0);
+        for (guint i = 0; i < store->tasks->len; ++i) {
+            ChronoTask *task = g_ptr_array_index(store->tasks, i);
+            if (task->status == CHRONO_TASK_DONE)
+                g_ptr_array_add(cache->completed_tasks, task);
+        }
+        g_ptr_array_sort(cache->completed_tasks, compare_completions);
+        cache->completed_order_dirty = FALSE;
+    }
+    return index < store->completed_tasks->len
+        ? g_ptr_array_index(store->completed_tasks, index) : NULL;
+}
+
+ChronoTask *
+chrono_store_get_completed_task_at(ChronoStore *store, guint index)
+{
+    return (ChronoTask *)chrono_store_get_completed_task_at_const(store, index);
+}
+
 gboolean
 chrono_store_is_consistent(const ChronoStore *store)
 {
@@ -216,6 +266,7 @@ chrono_store_adopt_loaded_task(ChronoStore *store, ChronoTask *task)
         !chrono_task_is_valid(task))
         return FALSE;
     g_ptr_array_add(store->tasks, task);
+    store->completed_order_dirty = TRUE;
     return TRUE;
 }
 
@@ -335,7 +386,8 @@ chrono_task_new_loaded(const char *id,
                        gint64 remaining_seconds,
                        ChronoTaskStatus status,
                        gint64 created_at_unix,
-                       gint64 completed_at_unix)
+                       gint64 completed_at_unix,
+                       gint64 elapsed_remainder_us)
 {
     if (id == NULL || title == NULL)
         return NULL;
@@ -350,6 +402,7 @@ chrono_task_new_loaded(const char *id,
     task->estimate_seconds = estimate_seconds;
     task->allocated_seconds = allocated_seconds;
     task->elapsed_seconds = elapsed_seconds;
+    task->elapsed_remainder_us = elapsed_remainder_us;
     task->remaining_seconds = remaining_seconds;
     task->status = status;
     task->created_at_unix = created_at_unix;
@@ -416,6 +469,7 @@ chrono_store_add_task(ChronoStore *store, ChronoTask *task)
     }
 
     g_ptr_array_add(store->tasks, task);
+    store->completed_order_dirty = TRUE;
     return TRUE;
 }
 
@@ -430,6 +484,7 @@ chrono_store_remove_task(ChronoStore *store, const char *task_id)
     for (guint i = 0; i < store->tasks->len; ++i) {
         ChronoTask *task = g_ptr_array_index(store->tasks, i);
         if (task != NULL && g_strcmp0(task->id, task_id) == 0) {
+            store->completed_order_dirty = TRUE;
             g_ptr_array_remove_index(store->tasks, i);
             return TRUE;
         }
@@ -447,6 +502,7 @@ chrono_store_clear_completed(ChronoStore *store)
     for (guint i = store->tasks->len; i > 0; --i) {
         ChronoTask *task = g_ptr_array_index(store->tasks, i - 1);
         if (task != NULL && task->status == CHRONO_TASK_DONE) {
+            store->completed_order_dirty = TRUE;
             g_ptr_array_remove_index(store->tasks, i - 1);
             ++removed;
         }
@@ -553,16 +609,30 @@ chrono_store_first_expired_task(ChronoStore *store)
     return (ChronoTask *)chrono_store_first_expired_task_const(store);
 }
 
-static gint64
-active_delta_seconds(const ChronoTask *task, gint64 now_monotonic_us)
+typedef struct {
+    gint64 seconds;
+    gint64 remainder_us;
+} TaskElapsed;
+
+static TaskElapsed
+effective_elapsed(const ChronoTask *task, gint64 now_monotonic_us)
 {
-    if (!task_allocation_is_valid(task) ||
-        task->status != CHRONO_TASK_ACTIVE ||
-        task->active_started_monotonic_us <= 0 ||
+    if (!task_allocation_is_valid(task))
+        return (TaskElapsed){0};
+    TaskElapsed elapsed = {task->elapsed_seconds, task->elapsed_remainder_us};
+    if (task->status != CHRONO_TASK_ACTIVE ||
         now_monotonic_us <= task->active_started_monotonic_us)
-        return 0;
+        return elapsed;
     gint64 delta_us = now_monotonic_us - task->active_started_monotonic_us;
-    return MIN(delta_us / G_USEC_PER_SEC, task->remaining_seconds);
+    /* Split before addition: neither large allocations nor monotonic deltas
+     * need to be multiplied by a million or added to a near-limit integer. */
+    gint64 fraction = elapsed.remainder_us + delta_us % G_USEC_PER_SEC;
+    gint64 seconds = delta_us / G_USEC_PER_SEC + fraction / G_USEC_PER_SEC;
+    if (seconds >= task->remaining_seconds)
+        return (TaskElapsed){task->allocated_seconds, 0};
+    elapsed.seconds += seconds;
+    elapsed.remainder_us = fraction % G_USEC_PER_SEC;
+    return elapsed;
 }
 
 gint64
@@ -571,7 +641,7 @@ chrono_task_effective_remaining(const ChronoTask *task, gint64 now_monotonic_us)
     g_return_val_if_fail(task != NULL, 0);
     if (!task_allocation_is_valid(task))
         return 0;
-    return task->remaining_seconds - active_delta_seconds(task, now_monotonic_us);
+    return task->allocated_seconds - effective_elapsed(task, now_monotonic_us).seconds;
 }
 
 gint64
@@ -580,7 +650,14 @@ chrono_task_effective_elapsed(const ChronoTask *task, gint64 now_monotonic_us)
     g_return_val_if_fail(task != NULL, 0);
     if (!task_allocation_is_valid(task))
         return 0;
-    return task->elapsed_seconds + active_delta_seconds(task, now_monotonic_us);
+    return effective_elapsed(task, now_monotonic_us).seconds;
+}
+
+gint64
+chrono_task_effective_elapsed_remainder_us(const ChronoTask *task,
+                                          gint64 now_monotonic_us)
+{
+    return effective_elapsed(task, now_monotonic_us).remainder_us;
 }
 
 double
@@ -589,7 +666,9 @@ chrono_task_progress_fraction(const ChronoTask *task, gint64 now_monotonic_us)
     g_return_val_if_fail(task != NULL, 0.0);
     if (task->allocated_seconds <= 0)
         return 0.0;
-    double fraction = (double)chrono_task_effective_elapsed(task, now_monotonic_us) /
+    TaskElapsed elapsed = effective_elapsed(task, now_monotonic_us);
+    double fraction = ((double)elapsed.seconds +
+                       (double)elapsed.remainder_us / G_USEC_PER_SEC) /
                       (double)task->allocated_seconds;
     return CLAMP(fraction, 0.0, 1.0);
 }
@@ -597,9 +676,10 @@ chrono_task_progress_fraction(const ChronoTask *task, gint64 now_monotonic_us)
 static void
 commit_active_delta(ChronoTask *task, gint64 now_monotonic_us)
 {
-    gint64 delta = active_delta_seconds(task, now_monotonic_us);
-    task->elapsed_seconds += delta;
-    task->remaining_seconds -= delta;
+    TaskElapsed elapsed = effective_elapsed(task, now_monotonic_us);
+    task->elapsed_seconds = elapsed.seconds;
+    task->elapsed_remainder_us = elapsed.remainder_us;
+    task->remaining_seconds = task->allocated_seconds - elapsed.seconds;
     task->active_started_monotonic_us = 0;
 }
 
@@ -792,6 +872,7 @@ chrono_store_complete_task(ChronoStore *store,
     }
 
     task->status = CHRONO_TASK_DONE;
+    store->completed_order_dirty = TRUE;
     task->active_started_monotonic_us = 0;
     task->completed_at_unix = MAX(
         MAX(g_get_real_time() / G_USEC_PER_SEC, 1),
@@ -854,6 +935,7 @@ chrono_store_get_completed_stats(const ChronoStore *store, ChronoStats *out_stat
     g_return_if_fail(store_has_task_array(store));
     g_return_if_fail(out_stats != NULL);
     *out_stats = (ChronoStats){0};
+    gint64 remainder_us = 0;
 
     for (guint i = 0; i < store->tasks->len; ++i) {
         const ChronoTask *task = g_ptr_array_index(store->tasks, i);
@@ -868,10 +950,13 @@ chrono_store_get_completed_stats(const ChronoStore *store, ChronoStats *out_stat
                     G_MAXINT64 - task->estimate_seconds
                 ? G_MAXINT64
                 : out_stats->total_estimate_seconds + task->estimate_seconds;
+        remainder_us += task->elapsed_remainder_us;
+        gint64 elapsed = task->elapsed_seconds + remainder_us / G_USEC_PER_SEC;
+        remainder_us %= G_USEC_PER_SEC;
         out_stats->total_elapsed_seconds =
             out_stats->total_elapsed_seconds >
-                    G_MAXINT64 - task->elapsed_seconds
+                    G_MAXINT64 - elapsed
                 ? G_MAXINT64
-                : out_stats->total_elapsed_seconds + task->elapsed_seconds;
+                : out_stats->total_elapsed_seconds + elapsed;
     }
 }

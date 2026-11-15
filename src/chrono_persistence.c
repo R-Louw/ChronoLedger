@@ -1,4 +1,5 @@
 #include "chrono_persistence.h"
+#include "chrono_json.h"
 #include "chrono_document_private.h"
 #include "chrono_model_private.h"
 
@@ -181,6 +182,9 @@ serialize_document(const ChronoDocument *document, gint64 now_monotonic_us)
         json_builder_add_int_value(builder, chrono_task_get_allocated_seconds(task));
         json_builder_set_member_name(builder, "elapsed_seconds");
         json_builder_add_int_value(builder, elapsed);
+        json_builder_set_member_name(builder, "elapsed_remainder_us");
+        json_builder_add_int_value(builder,
+            chrono_task_effective_elapsed_remainder_us(task, now_monotonic_us));
         json_builder_set_member_name(builder, "remaining_seconds");
         json_builder_add_int_value(builder, remaining);
         json_builder_set_member_name(builder, "status");
@@ -312,6 +316,7 @@ load_task(JsonObject *object,
     gint64 remaining = 0;
     gint64 created = 0;
     gint64 completed = 0;
+    gint64 elapsed_remainder_us = 0;
     ChronoTaskStatus status;
     gboolean discard_legacy = FALSE;
 
@@ -344,6 +349,9 @@ load_task(JsonObject *object,
         allocated = estimate;
         elapsed = estimate - remaining;
     }
+    if (schema_version >= 7 &&
+        !get_required_int(object, "elapsed_remainder_us", &elapsed_remainder_us))
+        return NULL;
 
     if (estimate <= 0 || allocated <= 0 || allocated < estimate ||
         elapsed < 0 || remaining < 0 ||
@@ -366,7 +374,8 @@ load_task(JsonObject *object,
     }
 
     return chrono_task_new_loaded(id, title, estimate, allocated, elapsed,
-                                  remaining, status, created, completed);
+                                  remaining, status, created, completed,
+                                  elapsed_remainder_us);
 }
 
 static ChronoDocument *
@@ -387,6 +396,8 @@ create_loaded_document(ChronoStore *store,
 static ChronoDocument *
 parse_document(const char *data, gssize length, GError **error)
 {
+    if (length < 0 || !chrono_json_validate(data, (gsize)length, error))
+        return NULL;
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, data, length, error)) {
         g_object_unref(parser);
@@ -443,8 +454,11 @@ parse_document(const char *data, gssize length, GError **error)
     }
 
     if (!json_object_has_member(root, "tasks")) {
+        g_set_error_literal(error, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+                            "The ledger must contain a tasks array");
+        chrono_store_free(store);
         g_object_unref(parser);
-        return create_loaded_document(store, &preferences, error);
+        return NULL;
     }
     JsonNode *tasks_node = json_object_get_member(root, "tasks");
     if (!JSON_NODE_HOLDS_ARRAY(tasks_node)) {

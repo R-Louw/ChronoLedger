@@ -60,6 +60,8 @@ Owns typed control hit testing and highlight metadata. `UiControlRef` replaces n
 
 Builds one immutable value snapshot for each synchronous render dispatch. The snapshot captures the frame monotonic timestamp, local preferences, active/focus state, visible queue and ledger rows, completed statistics, and the bounded ledger chart window. UI and renderer code therefore consume one coherent model view instead of rescanning mutable task state at different times during the same frame. Scalar values and preferences are copied; task identifiers and titles are borrowed from opaque tasks and are valid while the owning document remains unchanged on the GTK main thread.
 
+Completed rows use the model's completion order, also used to resolve row deletion. The chart takes the latest bounded completions and displays them chronologically.
+
 ### Renderer modules
 
 `renderer_context.c` owns renderer allocation/destruction, GL context realization, program compilation/linking, uniform discovery, render-target lifetime, and context teardown. The concrete `Renderer` representation remains private to the renderer subsystem through `renderer_state.h`; application and UI code use only `renderer.h`.
@@ -94,6 +96,10 @@ Important invariants include:
 - Completed timestamps do not predate creation.
 - Task status agrees with remaining time, active state, and completion time.
 
+Elapsed time consists of whole seconds plus a remainder in `[0, 999999]` microseconds. `allocated_seconds - elapsed_seconds == remaining_seconds` continues to hold; the remaining count includes a partially consumed second. Exhausted tasks have a zero remainder. Interval arithmetic splits seconds and fractional microseconds before addition so maximum-sized allocations never need to be multiplied into a microsecond integer. Copies, task switches, and serialization preserve the remainder; completed statistics carry fractional sums into whole seconds before applying saturation.
+
+The store also owns a lazy index of borrowed completed-task pointers, ordered by completion time descending, creation time descending, then ID ascending. Adding, completing, removing, or clearing tasks invalidates this index before any owned task is freed. Rebuilding the index does not change task values or insertion order and runs on the same thread as store access. Cursor frames reuse the index while the ledger is unchanged.
+
 ### `chrono_preferences.c` and `chrono_document.c`
 
 `ChronoPreferences` owns notification and presentation choices independently from ledger records. `ChronoDocument` is the application-level ownership boundary that contains one consistent `ChronoStore` and one preference value. Store exchanges validate the replacement before ownership transfers, allowing save-or-rollback transactions without exposing the model container.
@@ -101,6 +107,8 @@ Important invariants include:
 ### `chrono_persistence.c`
 
 Owns schema migration, strict validation, bounded I/O, and atomic replacement. Normal startup and explicit import use the same strict task parser. Invalid local data is not silently reduced and is not overwritten by the automatic save path. The import API returns ledger records only, which makes preservation of local preferences an API contract rather than a caller convention.
+
+`chrono_json.c` validates JSON syntax, UTF-8 and escapes, decoded member uniqueness, integer range, finite floating-point range, and a 128-container depth limit before JSON-GLib builds objects. It rejects embedded NUL characters before strings reach C-string APIs. Every supported schema requires a `tasks` array. Schema 7 stores `elapsed_remainder_us`; schemas 1–6 migrate with a zero remainder.
 
 Legacy compatibility is limited to recognized persisted fields. Bundled sample records from older schemas are discarded during migration and are never written by the current application.
 

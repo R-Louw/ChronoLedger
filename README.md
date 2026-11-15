@@ -56,7 +56,9 @@ $XDG_DATA_HOME/chronoledger/ledger.json
 
 When `XDG_DATA_HOME` is unset, GLib resolves the normal per-user data directory. Set `CHRONOLEDGER_FILE` to use a different file.
 
-Persistence uses schema version 6. Imports are limited to 16 MiB and 10,000 tasks. Active tasks are restored as paused because monotonic timestamps cannot be carried safely across processes or boots. Import replaces ledger records only; local notification and presentation preferences remain unchanged. Export remains a complete backup and includes both ledger records and preferences.
+Persistence uses schema version 7 and reads versions 1–6 with a zero subsecond remainder. Pausing, switching allocations, and saving preserve fractional elapsed time. Older application versions cannot read schema 7; keep a backup before downgrading. Imports are limited to 16 MiB, 10,000 tasks, and 128 levels of JSON nesting. Every supported document must contain a `tasks` array, including an explicitly empty ledger. Duplicate JSON members, out-of-range numbers, and NUL characters are rejected before parsing can change their values.
+
+Active tasks are restored as paused because monotonic timestamps cannot be carried safely across processes or boots. Import replaces ledger records only; local notification and presentation preferences remain unchanged. Export remains a complete backup and includes both ledger records and preferences.
 
 ## Keyboard controls
 
@@ -110,6 +112,7 @@ src/chrono_model.[ch]        opaque tasks/store, invariants, accessors, and tran
 src/chrono_preferences.[ch]  notification and presentation preferences
 src/chrono_document.[ch]     ownership boundary for ledger plus local preferences
 src/chrono_persistence.[ch]  JSON loading, migration, validation, and atomic save
+src/chrono_json.[ch]         bounded JSON validation before value conversion
 src/time_parse.[ch]          duration parsing and formatting
 src/power_policy.[ch]        foreground/background rendering policy
 src/render_policy.[ch]       render invalidation and progress cadence policy

@@ -87,41 +87,21 @@ capture_task_collections(AppViewSnapshot *snapshot,
     snapshot->open_task_count = open_seen;
     snapshot->completed_task_count = completed_seen;
 
-    guint target_start = session->ledger_offset;
-    guint found = 0;
-    for (guint i = task_count; i > 0; --i) {
-        const ChronoTask *task = chrono_store_get_task_at_const(store, i - 1);
-        if (task == NULL ||
-            chrono_task_get_status(task) != CHRONO_TASK_DONE)
-            continue;
-        if (found >= target_start &&
-            snapshot->ledger_row_count < CHRONO_VISIBLE_LEDGER_ROWS) {
-            task_view_capture(
-                &snapshot->ledger_rows[snapshot->ledger_row_count++],
-                task, snapshot->monotonic_us);
-        }
-        if (found < G_MAXUINT)
-            ++found;
+    for (guint i = session->ledger_offset; i < completed_seen &&
+         snapshot->ledger_row_count < CHRONO_VISIBLE_LEDGER_ROWS; ++i) {
+        const ChronoTask *task = chrono_store_get_completed_task_at_const(store, i);
+        task_view_capture(&snapshot->ledger_rows[snapshot->ledger_row_count++],
+                          task, snapshot->monotonic_us);
     }
 
     guint chart_count = MIN(completed_seen, APP_VIEW_LEDGER_CHART_MAX_TASKS);
-    guint skip = completed_seen - chart_count;
-    for (guint i = 0; i < task_count; ++i) {
-        const ChronoTask *task = chrono_store_get_task_at_const(store, i);
-        if (task == NULL ||
-            chrono_task_get_status(task) != CHRONO_TASK_DONE)
-            continue;
-        if (skip > 0) {
-            --skip;
-            continue;
-        }
+    for (guint i = chart_count; i > 0; --i) {
+        const ChronoTask *task = chrono_store_get_completed_task_at_const(store, i - 1);
         guint chart_index = snapshot->ledger_chart_count++;
         snapshot->ledger_chart[chart_index] = (AppLedgerChartEntry){
             .estimate_seconds = chrono_task_get_estimate_seconds(task),
             .elapsed_seconds = chrono_task_get_elapsed_seconds(task),
         };
-        if (snapshot->ledger_chart_count >= chart_count)
-            break;
     }
 }
 

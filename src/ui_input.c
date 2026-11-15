@@ -68,19 +68,7 @@ done_task_at(AppState *state, guint visible_index)
     if (visible_index > G_MAXUINT - state->session.ledger_offset)
         return NULL;
     guint target = state->session.ledger_offset + visible_index;
-    guint found = 0;
-    ChronoStore *store = app_store(state);
-    guint task_count = chrono_store_get_task_count(store);
-    for (guint i = task_count; i > 0; --i) {
-        ChronoTask *task = chrono_store_get_task_at(store, i - 1);
-        if (task == NULL || chrono_task_get_status(task) != CHRONO_TASK_DONE)
-            continue;
-        if (found == target)
-            return task;
-        if (found < G_MAXUINT)
-            ++found;
-    }
-    return NULL;
+    return chrono_store_get_completed_task_at(app_store(state), target);
 }
 
 static GdkToplevel *

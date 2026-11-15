@@ -42,6 +42,12 @@ guint chrono_store_get_task_count(const ChronoStore *store);
 ChronoTask *chrono_store_get_task_at(ChronoStore *store, guint index);
 const ChronoTask *chrono_store_get_task_at_const(const ChronoStore *store,
                                                   guint index);
+/* Recent completions first; ties use creation time, then ID. Borrowed tasks
+ * remain owned by store. The private order cache is maintained on the same
+ * thread as all other store access. */
+ChronoTask *chrono_store_get_completed_task_at(ChronoStore *store, guint index);
+const ChronoTask *chrono_store_get_completed_task_at_const(const ChronoStore *store,
+                                                           guint index);
 
 ChronoTask *chrono_task_new(const char *title,
                             gint64 estimate_seconds,

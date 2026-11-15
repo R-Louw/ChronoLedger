@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Reject missing task arrays, duplicate JSON members, numeric overflow, embedded NULs, and excessive nesting before loading or importing data.
+- Introduce schema 7 to retain fractional elapsed time across pauses, task switches, and saves; migrate versions 1–6 with a zero remainder.
+- Order completed rows and charts by completion time and use that same order for row actions.
+
 ## 1.18.0 — 2026-08-10
 
 - Added a persistent cursor shader-effects toggle.

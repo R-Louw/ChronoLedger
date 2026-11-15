@@ -15,6 +15,10 @@
 #include "time_parse.h"
 #include "ui_layout.h"
 
+void register_persistence_tests(void);
+void register_timing_tests(void);
+void register_ordering_tests(void);
+
 static ChronoTask *
 add_task(ChronoStore *store, const char *title, gint64 estimate_seconds)
 {
@@ -516,6 +520,9 @@ int
 main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    register_persistence_tests();
+    register_timing_tests();
+    register_ordering_tests();
     g_test_add_func("/model/duplicate-add-is-atomic", test_duplicate_add_is_atomic);
     g_test_add_func("/model/switch-active-pauses-previous",
                     test_starting_second_task_pauses_first);
