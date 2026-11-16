@@ -62,7 +62,7 @@ Active tasks are restored as paused because monotonic timestamps cannot be carri
 
 ## Keyboard controls
 
-- `F1`–`F4`: switch between Focus, Ledger, Calibration, and Routines, including while editing allocation fields. Modal editors keep these keys within the panel. Number keys remain ordinary input.
+- `F1`–`F4`: switch between Focus, Ledger, Routines, and Calibration, including while editing allocation fields. Modal editors keep these keys within the panel. Number keys remain ordinary input.
 - `Up`, `Down`: select an open allocation in Focus.
 - `Space` or `Enter`: start or pause the selected allocation.
 - `D`: complete the selected allocation.
@@ -95,7 +95,7 @@ src/ui_calibration_view.c    Calibration-mode drawing
 src/ui_input.c               window interaction and typed control input adaptation
 src/ui_layout.[ch]           pure responsive layout calculation
 src/ui_controls.[ch]         typed hit testing and control highlight metadata
-src/cursor_state.[ch]        pointer mapping, bounded trail sampling, phosphor lifetime
+src/cursor_state.[ch]        pointer mapping, bounded cross sampling, analytic afterglow
 src/shader_profile.[ch]      presentation-profile defaults and interpolation policy
 src/ui_control_types.h       stable control identifiers and indexed references
 src/renderer.[ch]            opaque renderer API and frame orchestration
@@ -133,11 +133,15 @@ The project metadata currently identifies ChronoLedger as proprietary and this r
 
 ## Routines and restored presentation
 
-F4 opens a dedicated routine queue. Use Previous/Next to select one of up to 32 routines; New/Edit opens a schedule editor. Choose daily or an integer interval of 1–8760 hours. New routines first become due after that interval, or at next local midnight for daily schedules. A due routine remains outstanding until acknowledged; missed occurrences collapse into this one reminder. Acknowledge schedules the next interval from now, or the next local calendar day. This wall-clock schedule survives sleep and restarts; changing the system clock or timezone affects when reminders become due. Daily schedules follow local calendar days across DST. Disabled routines retain their deadline and may be due immediately when re-enabled. Changing an interval restarts its schedule; title edits retain the deadline.
+F3 opens the routine queue. Use Previous/Next to select one of up to 32 routines; New/Edit opens a schedule editor. Choose daily or an integer interval of 1–8760 hours. New routines first become due after that interval, or at next local midnight for daily schedules. A due routine remains outstanding until acknowledged; missed occurrences collapse into this one reminder. Acknowledge schedules the next interval from now, or the next local calendar day. This wall-clock schedule survives sleep and restarts; changing the system clock or timezone affects when reminders become due. Daily schedules follow local calendar days across DST. Disabled routines retain their deadline and may be due immediately when re-enabled. Changing an interval restarts its schedule; title edits retain the deadline.
 
-Routines do not consume allocation time or create completed ledger rows. Enabled due routines use the existing notification preference, once per outstanding occurrence per process (a restart may notify again). A disabled routine remains editable and removable. Presentation and routines are local preferences: ledger import preserves them, while export includes them in the full backup. Older schema-7 documents remain readable with defaults. Older binaries may discard these new optional fields when saving.
+Choose **Scheduled confirmation** for a fixed daily local time (24-hour hour/minute) and a 1–120 minute window (default 10). The first occurrence is the next future clock time. At that time **Confirm** becomes available with one click; no allocation timer is needed. **DUE** means the window is open; **OVERDUE** means it expired. The original deadline remains outstanding across missed days, restarts and sleep until confirmed. Confirmation shows a success message and **WAITING**, with the next fixed daily time; it never shifts the schedule to the confirmation time. Schedule controls lock while outstanding; title edits remain available. Disabling stops future triggers but preserves an outstanding item, its deadline and the ability to confirm it.
 
-Normal close saves the selected tab, presentation profile, all six manual shader values, AA and palette, alongside existing toggles. A pending profile transition saves its intended target. Window position, tiled size and compositor state are deliberately excluded. Recovery remains read-only and never overwrites malformed data.
+Scheduling uses wall-clock Unix seconds, checked on the GTK main thread while visible, backgrounded or covered by an operator panel. Forward clock jumps reconcile against the original deadline; backward jumps cannot clear an already observed due/overdue state. Confirming after a rollback schedules strictly after both the confirmation time and the original trigger. An already booked occurrence keeps its absolute instant across timezone/calendar changes; the next occurrence uses the current local timezone. DST gaps use the first valid time after the gap, and repeated times use the standard-time occurrence once. Actual system suspend was not required to reconcile missed windows: the next maintenance pass compares the saved deadline with wall time.
+
+Routines do not consume allocation time or create completed ledger rows. Due routines use the existing notification preference, once per outstanding occurrence per process (a restart may notify again). A disabled routine remains editable and removable. Presentation and routines are local preferences: ledger import preserves them, while export includes them in the full backup. Older schema-7 documents remain readable with defaults. Older binaries may discard these new optional fields when saving.
+
+Normal close saves the selected tab, presentation profile, all five manual shader values, AA and palette, alongside existing toggles. A pending profile transition saves its intended target. Window position, tiled size and compositor state are deliberately excluded. Recovery remains read-only and never overwrites malformed data.
 
 See [durable installation and rollback](docs/INSTALLATION.md). Run `./tools/promote` to validate and promote a future working release without disrupting an already running instance.
 
@@ -148,3 +152,5 @@ Calibration retains the twelve original schemes and adds **Paper** (neutral phos
 The Mask slider runs from no aperture texture to pronounced phosphor cells; its toggle bypasses the effect without discarding the value. Curvature has both a toggle and a strength slider, with the default matching the former fixed warp. Pointer hit testing follows the visible scene while the custom cursor remains in raw window coordinates.
 
 App-owned alerts, confirmations and routine editing use an in-window operator panel. Panels share the selected palette and glow, use ordinary GTK keyboard/text editing, trap Tab navigation, cancel on Escape, and restore prior focus. Destructive confirmations start on Cancel. Text fields remain unwarped and available after renderer failure; file pickers remain native. Timers and routines continue while panels are open.
+
+The cursor has a crisp four-arm cross with continuous phosphor afterglow governed by Persistence. The former independent centerline and Cursor trail control have been removed. Older saved settings remain compatible; their retired trail value is ignored. Disabling Cursor effects leaves a plain cross with no afterglow. Below the minimum layout size, while inactive, or if rendering is unavailable, the native pointer stays visible. See [cursor study tooling](tools/cursor-study/README.md) for repeatable motion and lifecycle checks.

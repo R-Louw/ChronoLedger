@@ -9,7 +9,6 @@ shader_settings_reset(ShaderSettings *settings)
     *settings = (ShaderSettings){
         .glow = 0.70f,
         .persistence = 0.24f,
-        .cursor_persistence = CHRONO_REFERENCE_CURSOR_PERSISTENCE,
         .vignette = 0.44f,
         .mask_strength = 0.36f,
         .curvature_strength = CHRONO_CURVATURE_DEFAULT,
@@ -43,7 +42,6 @@ shader_profile_settings(PresentationMode mode)
     case PRESENTATION_OFF:
         settings.glow = 0.0f;
         settings.persistence = 0.0f;
-        settings.cursor_persistence = 0.0f;
         settings.vignette = 0.0f;
         settings.mask_strength = 0.0f;
         settings.curvature_strength = 0.0f;
@@ -110,7 +108,6 @@ shader_profile_advance(AppPresentationState *presentation,
         presentation->profile_target.field, amount)
     INTERPOLATE_SETTING(glow);
     INTERPOLATE_SETTING(persistence);
-    INTERPOLATE_SETTING(cursor_persistence);
     INTERPOLATE_SETTING(vignette);
     INTERPOLATE_SETTING(mask_strength);
     INTERPOLATE_SETTING(curvature_strength);

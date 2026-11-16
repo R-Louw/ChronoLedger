@@ -60,6 +60,7 @@ install_css(GtkWidget *widget)
 void
 app_show_diagnostic(AppState *state, const char *message, gboolean is_error)
 {
+    app_input_update_cursor(state, FALSE);
     if (state->shell.diagnostic_overlay == NULL || state->shell.diagnostic_label == NULL)
         return;
     gtk_label_set_text(state->shell.diagnostic_label, message);

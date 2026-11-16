@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 #include <glib/gstdio.h>
 #include "cursor_state.h"
+#include "app_routines.h"
 #include <math.h>
 
 static guint shown_alerts;
@@ -100,6 +101,10 @@ test_recovery_mutations(Fixture *fixture, gconstpointer unused)
         APP_ACTION_TOGGLE_CURSOR_SHADER_EFFECTS, APP_ACTION_TOGGLE_NOTIFICATIONS,
         APP_ACTION_TOGGLE_SOUND,
     };
+    app_preferences(state)->routine_count = 1;
+    app_preferences(state)->routines[0] = (ChronoRoutine){.title = "Keep outstanding",
+        .enabled = TRUE, .scheduled = TRUE, .clock_minute = 540, .window_minutes = 10,
+        .due = 1700000000, .deadline = 1700000600, .overdue = TRUE};
     ChronoPreferences preferences = *app_preferences(state);
     for (guint i = 0; i < G_N_ELEMENTS(mutations); ++i) {
         AppAction action = {.type = mutations[i]};
@@ -137,6 +142,10 @@ test_recovery_import(Fixture *fixture, gconstpointer unused)
     ChronoStore *previous = app_store(state);
     app_preferences(state)->sound_enabled = TRUE;
     app_preferences(state)->curvature_enabled = TRUE;
+    app_preferences(state)->routine_count = 1;
+    app_preferences(state)->routines[0] = (ChronoRoutine){.title = "Keep outstanding",
+        .enabled = TRUE, .scheduled = TRUE, .clock_minute = 540, .window_minutes = 10,
+        .due = 1700000000, .deadline = 1700000600, .overdue = TRUE};
     ChronoPreferences preferences = *app_preferences(state);
     g_free(state->session.data_path);
     state->session.data_path = g_build_filename(fixture->obstacle, "ledger.json", NULL);
@@ -159,6 +168,40 @@ test_recovery_import(Fixture *fixture, gconstpointer unused)
     g_assert_nonnull(saved);
     const ChronoTask *task = chrono_store_get_task_at_const(chrono_document_get_store_const(saved), 0);
     g_assert_cmpstr(chrono_task_get_title(task), ==, "Replacement");
+    chrono_document_free(saved);
+}
+
+static void test_routine_confirmation_command(Fixture *fixture, gconstpointer unused)
+{
+    (void)unused;
+    AppState *s = fixture->state;
+    ChronoPreferences *p = app_preferences(s);
+    p->routine_count = 1;
+    gint64 now = g_get_real_time() / G_USEC_PER_SEC;
+    p->routines[0] = (ChronoRoutine){.title = "Confirm", .enabled = TRUE,
+        .scheduled = TRUE, .clock_minute = 540, .window_minutes = 1, .due = now - 120};
+    ChronoRoutine original = p->routines[0];
+    app_routine_command(s, 3);
+    app_routine_command(s, 5);
+    g_assert_cmpmem(&original, sizeof(original), &p->routines[0], sizeof(original));
+    assert_primary_protected(fixture);
+    s->session.data_load_failed = FALSE;
+    // Disable at/after the trigger latches the original item before disabling.
+    app_routine_command(s, 5);
+    g_assert_false(p->routines[0].enabled);
+    g_assert_true(p->routines[0].overdue);
+    g_assert_cmpint(p->routines[0].deadline, ==, original.due + 60);
+    app_routine_command(s, 3);
+    g_assert_cmpint(p->routines[0].deadline, ==, 0);
+    g_assert_false(p->routines[0].overdue);
+    g_assert_cmpint(p->routines[0].due, >, now);
+    g_assert_false(chrono_store_has_active_task(app_store(s)));
+    g_assert_cmpuint(chrono_store_get_task_count(app_store(s)), ==, 0);
+    ChronoDocument *saved = chrono_persistence_load(fixture->primary, NULL);
+    g_assert_nonnull(saved);
+    const ChronoRoutine *r = &chrono_document_get_preferences_const(saved)->routines[0];
+    g_assert_cmpint(r->due, ==, p->routines[0].due);
+    g_assert_cmpint(r->deadline, ==, 0);
     chrono_document_free(saved);
 }
 
@@ -262,10 +305,62 @@ static void test_manual_profile_override(Fixture *f, gconstpointer unused)
     g_assert_cmpint(s->presentation.settings.palette, ==, PALETTE_COPPER);
 }
 
+static void test_cursor_afterglow(void)
+{
+    AppInputState input = {.pointer_inside = TRUE};
+    ShaderSettings settings;
+    shader_settings_reset(&settings);
+    ChronoPreferences preferences;
+    chrono_preferences_init_defaults(&preferences);
+    Renderer *renderer = renderer_create();
+    cursor_state_record_motion(&input, &settings, &preferences, renderer, 100, 150, 1000000);
+    cursor_state_record_motion(&input, &settings, &preferences, renderer, 250, 150, 1016667);
+    g_assert_cmpuint(input.cursor_sample_count, >, 100);
+    guint oldest = (input.cursor_sample_head + CHRONO_CURSOR_SAMPLES - input.cursor_sample_count) % CHRONO_CURSOR_SAMPLES;
+    for (guint i = 1; i < input.cursor_sample_count; ++i) {
+        const CursorPhosphorPoint *a = &input.cursor_samples[(oldest + i - 1) % CHRONO_CURSOR_SAMPLES];
+        const CursorPhosphorPoint *b = &input.cursor_samples[(oldest + i) % CHRONO_CURSOR_SAMPLES];
+        g_assert_cmpfloat(hypot(b->x - a->x, b->y - a->y), <=, CHRONO_CURSOR_SAMPLE_SPACING + .00001);
+        g_assert_cmpint(b->timestamp_us, >=, a->timestamp_us);
+    }
+    guint count = input.cursor_sample_count;
+    gint64 last_time = input.cursor_samples[(input.cursor_sample_head + CHRONO_CURSOR_SAMPLES - 1) % CHRONO_CURSOR_SAMPLES].timestamp_us;
+    for (int i = 1; i <= 20; ++i)
+        cursor_state_update(&input, &settings, &preferences, renderer, 1016667 + i * 1000);
+    g_assert_cmpuint(input.cursor_sample_count, ==, count);
+    g_assert_cmpint(input.cursor_samples[(input.cursor_sample_head + CHRONO_CURSOR_SAMPLES - 1) % CHRONO_CURSOR_SAMPLES].timestamp_us, ==, last_time);
+    float initial = cursor_state_emission(1, 0);
+    g_assert_cmpfloat_with_epsilon(cursor_state_emission(1, 645000), initial / 2, .000001);
+    g_assert_cmpfloat_with_epsilon(cursor_state_emission(1, 1290000), initial / 4, .000001);
+    g_assert_cmpfloat(cursor_state_emission(1, 6450000), ==, 0);
+    g_assert_cmpfloat(cursor_state_emission(0, 0), ==, 0);
+    g_assert_cmpfloat(cursor_state_emission(NAN, 0), ==, 0);
+    // A single update after a stall expires everything, without intermediate draws.
+    cursor_state_update(&input, &settings, &preferences, renderer, 9000000);
+    g_assert_cmpuint(input.cursor_sample_count, ==, 0);
+    cursor_state_record_motion(&input, &settings, &preferences, renderer, 300, 150, 9000001);
+    g_assert_cmpuint(input.cursor_sample_count, >, 0);
+    preferences.cursor_shader_effects_enabled = FALSE;
+    cursor_state_update(&input, &settings, &preferences, renderer, 9000002);
+    g_assert_cmpuint(input.cursor_sample_count, ==, 0);
+    g_assert_cmpint(input.cursor_anchor_us, ==, 0);
+    preferences.cursor_shader_effects_enabled = TRUE;
+    // Reversals and queue pressure remain bounded; cleanup discards all ownership.
+    for (int i = 0; i < 300; ++i)
+        cursor_state_record_motion(&input, &settings, &preferences, renderer,
+            i % 2 ? 900 : 100, 200, 10000000 + i * 1000);
+    g_assert_cmpuint(input.cursor_sample_count, ==, CHRONO_CURSOR_SAMPLES);
+    cursor_state_clear(&input, renderer);
+    g_assert_cmpuint(input.cursor_sample_count, ==, 0);
+    renderer_destroy(renderer);
+}
+
 int
 main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
+    g_test_add("/controller/routine-confirmation", Fixture, NULL, setup, test_routine_confirmation_command, teardown);
+    g_test_add_func("/controller/cursor-afterglow", test_cursor_afterglow);
     g_test_add("/controller/recovery-mutations", Fixture, NULL, setup, test_recovery_mutations, teardown);
     g_test_add("/controller/recovery-import", Fixture, NULL, setup, test_recovery_import, teardown);
     g_test_add("/controller/dialog-cancellation", Fixture, NULL, setup, test_dialog_cancellation, teardown);

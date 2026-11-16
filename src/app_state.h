@@ -83,7 +83,7 @@ typedef struct {
     int logical_height;
 } AppSceneState;
 
-/* Pointer sampling, hit state, and bounded cursor trail storage. */
+/* Pointer sampling, hit state, and bounded cross afterglow storage. */
 typedef struct {
     double raw_pointer_x;
     double raw_pointer_y;
@@ -97,16 +97,15 @@ typedef struct {
     CursorMotionPoint cursor_motion_queue[CHRONO_CURSOR_EVENT_QUEUE];
     guint cursor_motion_head;
     guint cursor_motion_count;
-    gint64 cursor_phosphor_active_until_us;
     SliderId active_slider;
     UiControlRef hover_control;
 
-    CursorTrailPoint cursor_trail[CHRONO_CURSOR_TRAIL_SAMPLES];
-    unsigned int cursor_trail_head;
-    unsigned int cursor_trail_count;
-    gint64 cursor_trail_last_sample_us;
-    double cursor_trail_last_x;
-    double cursor_trail_last_y;
+    CursorPhosphorPoint cursor_samples[CHRONO_CURSOR_SAMPLES];
+    unsigned int cursor_sample_head;
+    unsigned int cursor_sample_count;
+    gint64 cursor_anchor_us;
+    double cursor_anchor_x;
+    double cursor_anchor_y;
 } AppInputState;
 
 /* Frame cadence, invalidation timing, and power-policy scheduling. */

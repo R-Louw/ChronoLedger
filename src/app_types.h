@@ -17,30 +17,22 @@
 #define CHRONO_COMPACT_HEIGHT 480
 #define CHRONO_MINIMAL_WIDTH 560
 #define CHRONO_MINIMAL_HEIGHT 360
-#define CHRONO_SLIDER_COUNT 6
+#define CHRONO_SLIDER_COUNT 5
 #define CHRONO_PALETTE_COUNT 17
 #define CHRONO_FONT_MODE_COUNT 2
 #define CHRONO_AA_MODE_COUNT 4
 #define CHRONO_MODE_COUNT 4
 #define CHRONO_MAX_SURFACE_BYTES ((gsize)384 * 1024 * 1024)
 #define CHRONO_FONT_CACHE_SLOTS 128
-#define CHRONO_CURSOR_TRAIL_SAMPLES 4096
+#define CHRONO_CURSOR_SAMPLES 8192
 #define CHRONO_CURSOR_EVENT_QUEUE 512
 #define CHRONO_CURSOR_GLOW_PADDING_PX 18
 /* Cursor phosphor geometry and persistence constants. */
-#define CHRONO_REFERENCE_CURSOR_PERSISTENCE 0.27f
-#define CHRONO_REFERENCE_CURSOR_SAMPLE_SPACING 2.0
-#define CHRONO_REFERENCE_CURSOR_FADE_EXPONENT 4.1
-#define CHRONO_REFERENCE_CURSOR_TRAIL_ALPHA 0.42
-#define CHRONO_REFERENCE_CURSOR_TRAIL_SHADOW_WIDTH 6.2
-#define CHRONO_REFERENCE_CURSOR_TRAIL_CORE_WIDTH 3.6
+#define CHRONO_CURSOR_SAMPLE_SPACING 1.5
 #define CHRONO_REFERENCE_CURSOR_CROSS_SHADOW_WIDTH 5.2
 #define CHRONO_REFERENCE_CURSOR_CROSS_CORE_WIDTH 3.0
 #define CHRONO_REFERENCE_CURSOR_CROSS_INNER 2.2
 #define CHRONO_REFERENCE_CURSOR_CROSS_OUTER 9.0
-#define CHRONO_REFERENCE_CURSOR_TRAIL_R 0.62f
-#define CHRONO_REFERENCE_CURSOR_TRAIL_G 1.00f
-#define CHRONO_REFERENCE_CURSOR_TRAIL_B 0.78f
 #define CHRONO_REFERENCE_CURSOR_CROSS_R 0.70f
 #define CHRONO_REFERENCE_CURSOR_CROSS_G 1.00f
 #define CHRONO_REFERENCE_CURSOR_CROSS_B 0.84f
@@ -98,7 +90,6 @@ typedef enum {
     SLIDER_NONE = -1,
     SLIDER_GLOW,
     SLIDER_PERSISTENCE,
-    SLIDER_CURSOR_PERSISTENCE,
     SLIDER_VIGNETTE,
     SLIDER_MASK,
     SLIDER_CURVATURE,
@@ -107,8 +98,8 @@ typedef enum {
 typedef enum {
     CHRONO_MODE_FOCUS,
     CHRONO_MODE_LEDGER,
-    CHRONO_MODE_CALIBRATION,
     CHRONO_MODE_ROUTINES,
+    CHRONO_MODE_CALIBRATION,
 } ChronoMode;
 
 typedef enum {
@@ -153,7 +144,6 @@ typedef enum {
 typedef struct {
     float glow;
     float persistence;
-    float cursor_persistence;
     float vignette;
     float mask_strength;
     float curvature_strength; /* normalized; shader/mapping multiply by MAX */
@@ -165,7 +155,7 @@ typedef struct {
     double x;
     double y;
     gint64 timestamp_us;
-} CursorTrailPoint;
+} CursorPhosphorPoint;
 
 typedef struct {
     double x;

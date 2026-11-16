@@ -39,13 +39,8 @@ static void release_gl_resources(Renderer *renderer)
         glDeleteFramebuffers(1, &renderer->cursor_scene_fbo);
     if (renderer->cursor_aa_fbo != 0)
         glDeleteFramebuffers(1, &renderer->cursor_aa_fbo);
-    if (renderer->cursor_history_fbo != 0)
-        glDeleteFramebuffers(1, &renderer->cursor_history_fbo);
     if (renderer->history_textures[0] != 0 || renderer->history_textures[1] != 0)
         glDeleteTextures(2, renderer->history_textures);
-    if (renderer->cursor_history_textures[0] != 0 ||
-        renderer->cursor_history_textures[1] != 0)
-        glDeleteTextures(2, renderer->cursor_history_textures);
     if (renderer->aa_texture != 0)
         glDeleteTextures(1, &renderer->aa_texture);
     if (renderer->aa_refine_texture != 0)
@@ -80,8 +75,6 @@ static void release_gl_resources(Renderer *renderer)
         glDeleteProgram(renderer->geometry_program);
     if (renderer->cursor_aa_program != 0)
         glDeleteProgram(renderer->cursor_aa_program);
-    if (renderer->cursor_persistence_program != 0)
-        glDeleteProgram(renderer->cursor_persistence_program);
     if (renderer->cursor_phosphor_program != 0)
         glDeleteProgram(renderer->cursor_phosphor_program);
     if (renderer->aa_program != 0)
@@ -433,29 +426,11 @@ renderer_get_max_texture_size(const Renderer *renderer)
     return renderer != NULL ? renderer->max_texture_size : 0;
 }
 
-gboolean
-renderer_cursor_history_is_valid(const Renderer *renderer)
-{
-    return renderer != NULL && renderer->cursor_history_valid;
-}
-
 void
-renderer_invalidate_cursor_history(Renderer *renderer)
+renderer_clear_cursor_damage(Renderer *renderer)
 {
     if (renderer == NULL)
         return;
-    if (renderer->cursor_history_valid)
-        renderer->cursor_history_reset_requested = TRUE;
-    renderer->cursor_history_valid = FALSE;
-}
-
-void
-renderer_clear_cursor_history(Renderer *renderer)
-{
-    if (renderer == NULL)
-        return;
-    renderer->cursor_history_valid = FALSE;
-    renderer->cursor_history_reset_requested = TRUE;
     renderer->cursor_damage_x0 = 0;
     renderer->cursor_damage_y0 = 0;
     renderer->cursor_damage_x1 = 0;
@@ -607,21 +582,6 @@ void renderer_realize(AppState *state)
     g_free(shader_error);
 
     shader_error = NULL;
-    renderer->cursor_persistence_program = create_program(
-        renderer->is_gles, RENDERER_SHADER_CURSOR_PERSISTENCE_FRAGMENT, &shader_error);
-    if (renderer->cursor_persistence_program == 0) {
-        char *message = g_strdup_printf(
-            "The GL context was created, but the cursor persistence shader failed.\n\n%s",
-            shader_error != NULL ? shader_error : "No shader compiler log was returned.");
-        app_show_diagnostic(state, message, TRUE);
-        g_free(message);
-        g_free(shader_error);
-        release_gl_resources(renderer);
-        return;
-    }
-    g_free(shader_error);
-
-    shader_error = NULL;
     renderer->cursor_phosphor_program = create_program(
         renderer->is_gles, RENDERER_SHADER_CURSOR_PHOSPHOR_FRAGMENT, &shader_error);
     if (renderer->cursor_phosphor_program == 0) {
@@ -648,7 +608,6 @@ void renderer_realize(AppState *state)
     glGenTextures(2, renderer->history_textures);
     glGenTextures(1, &renderer->cursor_scene_texture);
     glGenTextures(1, &renderer->cursor_aa_texture);
-    glGenTextures(2, renderer->cursor_history_textures);
     glGenFramebuffers(1, &renderer->composed_fbo);
     glGenFramebuffers(1, &renderer->aa_fbo);
     glGenFramebuffers(1, &renderer->aa_refine_fbo);
@@ -656,7 +615,6 @@ void renderer_realize(AppState *state)
     glGenFramebuffers(1, &renderer->final_fbo);
     glGenFramebuffers(1, &renderer->cursor_scene_fbo);
     glGenFramebuffers(1, &renderer->cursor_aa_fbo);
-    glGenFramebuffers(1, &renderer->cursor_history_fbo);
     glGenBuffers(CHRONO_UPLOAD_PBO_COUNT, renderer->upload_pbos);
     glGenBuffers(CHRONO_UPLOAD_PBO_COUNT, renderer->text_mask_pbos);
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &renderer->max_texture_size);
@@ -670,10 +628,8 @@ void renderer_realize(AppState *state)
         renderer->history_textures[0] == 0 || renderer->history_textures[1] == 0 ||
         renderer->history_fbo == 0 || renderer->final_fbo == 0 ||
         renderer->cursor_scene_texture == 0 || renderer->cursor_aa_texture == 0 ||
-        renderer->cursor_history_textures[0] == 0 ||
-        renderer->cursor_history_textures[1] == 0 ||
         renderer->cursor_scene_fbo == 0 || renderer->cursor_aa_fbo == 0 ||
-        renderer->cursor_history_fbo == 0 || renderer->max_texture_size <= 0) {
+        renderer->max_texture_size <= 0) {
         app_show_diagnostic(state,
                             "OpenGL did not provide the required shader, framebuffer, or texture resources.",
                             TRUE);
@@ -692,8 +648,6 @@ void renderer_realize(AppState *state)
         renderer->history_textures[1],
         renderer->cursor_scene_texture,
         renderer->cursor_aa_texture,
-        renderer->cursor_history_textures[0],
-        renderer->cursor_history_textures[1],
     };
     /* Shader sampling helpers rely on clamp-to-edge here and intentionally
      * avoid repeating clamp() around every normalized texture lookup.
@@ -706,7 +660,6 @@ void renderer_realize(AppState *state)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
     glBindTexture(GL_TEXTURE_2D, 0);
-    renderer->cursor_history_reset_requested = TRUE;
 
     glBindVertexArray(renderer->geometry_vao);
     glBindBuffer(GL_ARRAY_BUFFER, renderer->geometry_vbo);

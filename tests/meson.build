@@ -2,6 +2,7 @@ core_tests = executable(
   'chronoledger-core-tests',
   files(
     'test_core.c',
+    'test_routines.c',
     'test_persistence.c',
     'test_timing.c',
     'test_ordering.c',

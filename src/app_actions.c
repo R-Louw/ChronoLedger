@@ -273,8 +273,6 @@ slider_value(ShaderSettings *settings, SliderId slider)
         return &settings->glow;
     case SLIDER_PERSISTENCE:
         return &settings->persistence;
-    case SLIDER_CURSOR_PERSISTENCE:
-        return &settings->cursor_persistence;
     case SLIDER_VIGNETTE:
         return &settings->vignette;
     case SLIDER_MASK:

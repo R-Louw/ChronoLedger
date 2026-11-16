@@ -51,6 +51,18 @@ queue_cursor_motion(AppState *state, double x, double y, gint64 timestamp_us)
     state->input.cursor_motion_count++;
 }
 
+static void
+record_cursor_event(AppState *state, double x, double y)
+{
+    if (state->runtime.power_mode != CHRONO_POWER_INTERACTIVE) return;
+    cursor_state_record_motion(&state->input, &state->presentation.settings,
+        app_preferences_const(state), state->renderer, x, y, g_get_monotonic_time());
+    /* Entry/clicks must present a fresh cross even with afterglow disabled
+     * and no hover change to invalidate the otherwise settled scene. */
+    if (state->shell.gl_area != NULL && renderer_is_ready(state->renderer))
+        gtk_gl_area_queue_render(state->shell.gl_area);
+}
+
 gboolean
 app_input_process_pending(AppState *state)
 {
@@ -106,7 +118,8 @@ on_motion(GtkEventControllerMotion *controller,
     gint64 now_us = g_get_monotonic_time();
     state->input.pending_raw_pointer_x = x;
     state->input.pending_raw_pointer_y = y;
-    queue_cursor_motion(state, x, y, now_us);
+    if (state->runtime.power_mode == CHRONO_POWER_INTERACTIVE)
+        queue_cursor_motion(state, x, y, now_us);
     state->input.pointer_motion_pending = TRUE;
 }
 
@@ -120,14 +133,12 @@ on_enter(GtkEventControllerMotion *controller,
     AppState *state = user_data;
     if (!isfinite(x) || !isfinite(y))
         return;
+    app_input_update_cursor(state, FALSE);
     state->input.pointer_inside = TRUE;
     state->input.pointer_motion_pending = FALSE;
     state->input.cursor_motion_count = 0;
     update_pointer_now(state, x, y);
-    cursor_state_record_motion(&state->input,
-                               &state->presentation.settings,
-                               app_preferences_const(state), state->renderer,
-                               x, y, g_get_monotonic_time());
+    record_cursor_event(state, x, y);
 }
 
 static void
@@ -136,6 +147,7 @@ on_leave(GtkEventControllerMotion *controller, gpointer user_data)
     (void)controller;
     AppState *state = user_data;
     state->input.pointer_inside = FALSE;
+    app_input_update_cursor(state, FALSE);
     state->input.pointer_down = FALSE;
     state->input.pointer_motion_pending = FALSE;
     state->input.cursor_motion_count = 0;
@@ -164,10 +176,7 @@ on_pressed(GtkGestureClick *gesture,
     state->input.pointer_motion_pending = FALSE;
     state->input.cursor_motion_count = 0;
     update_pointer_now(state, x, y);
-    cursor_state_record_motion(&state->input,
-                               &state->presentation.settings,
-                               app_preferences_const(state), state->renderer,
-                               x, y, g_get_monotonic_time());
+    record_cursor_event(state, x, y);
     guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
     ui_handle_press(state, state->input.pointer_x, state->input.pointer_y,
                     button, gesture);
@@ -187,10 +196,7 @@ on_released(GtkGestureClick *gesture,
     state->input.pointer_motion_pending = FALSE;
     state->input.cursor_motion_count = 0;
     update_pointer_now(state, x, y);
-    cursor_state_record_motion(&state->input,
-                               &state->presentation.settings,
-                               app_preferences_const(state), state->renderer,
-                               x, y, g_get_monotonic_time());
+    record_cursor_event(state, x, y);
     guint button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
     ui_handle_release(state, state->input.pointer_x, state->input.pointer_y, button);
 }
@@ -306,10 +312,19 @@ on_key_pressed(GtkEventControllerKey *controller,
     return app_dispatch_action(state, &action);
 }
 
-static void
-hide_system_cursor(GtkWidget *widget)
+void
+app_input_update_cursor(AppState *state, gboolean rendered)
 {
-    gtk_widget_set_cursor_from_name(widget, "none");
+    if (state == NULL || state->shell.gl_area == NULL) return;
+    gboolean custom = rendered && renderer_is_ready(state->renderer) &&
+        state->runtime.power_mode == CHRONO_POWER_INTERACTIVE &&
+        state->shell.modal_overlay == NULL && state->input.pointer_inside &&
+        gtk_widget_get_width(GTK_WIDGET(state->shell.gl_area)) >= CHRONO_MINIMAL_WIDTH &&
+        gtk_widget_get_height(GTK_WIDGET(state->shell.gl_area)) >= CHRONO_MINIMAL_HEIGHT;
+    /* Hide the compositor pointer only after successful custom presentation.
+     * Failure, focus loss, panels, small allocations and context loss use the
+     * native arrow, which does not depend on GL or animation scheduling. */
+    gtk_widget_set_cursor_from_name(GTK_WIDGET(state->shell.gl_area), custom ? "none" : "default");
 }
 
 
@@ -335,5 +350,5 @@ app_input_install(AppState *state)
     GtkEventController *keys = gtk_event_controller_key_new();
     g_signal_connect(keys, "key-pressed", G_CALLBACK(on_key_pressed), state);
     gtk_widget_add_controller(GTK_WIDGET(state->shell.window), keys);
-    hide_system_cursor(GTK_WIDGET(state->shell.gl_area));
+    app_input_update_cursor(state, FALSE);
 }

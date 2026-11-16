@@ -290,7 +290,7 @@ draw_status_rail_static(AppState *state, cairo_t *cr, PangoLayout *layout)
 static void
 draw_mode_tabs(AppState *state, cairo_t *cr, PangoLayout *layout)
 {
-    const char *labels[] = {"F1 Focus", "F2 Ledger", "F3 Calibrate", "F4 Routines"};
+    const char *labels[] = {"F1 Focus", "F2 Ledger", "F3 Routines", "F4 Calibration"};
     for (int i = 0; i < CHRONO_MODE_COUNT; ++i) {
         Rect rect = state->presentation.layout.modes[i];
         gboolean selected = state->presentation.active_tab == i;
@@ -604,7 +604,7 @@ draw_annunciator(AppState *state,
     } else if (text == NULL || *text == '\0' ||
         (state->session.annunciator_until_us > 0 &&
          view->monotonic_us > state->session.annunciator_until_us)) {
-        text = "READY · F1 Focus · F2 Ledger · F3 Calibration · F4 Routines";
+        text = "READY · F1 Focus · F2 Ledger · F3 Routines · F4 Calibration";
         kind = ANNUNCIATOR_INFO;
     }
     double r = 0.38, g = 0.82, b = 0.58;

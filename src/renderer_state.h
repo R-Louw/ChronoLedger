@@ -21,7 +21,6 @@ struct _Renderer {
     GLuint aa_program;
     GLuint geometry_program;
     GLuint cursor_aa_program;
-    GLuint cursor_persistence_program;
     GLuint cursor_phosphor_program;
     GLuint vao;
     GLuint geometry_vao;
@@ -41,10 +40,8 @@ struct _Renderer {
     GLuint history_fbo;
     GLuint cursor_scene_texture;
     GLuint cursor_aa_texture;
-    GLuint cursor_history_textures[2];
     GLuint cursor_scene_fbo;
     GLuint cursor_aa_fbo;
-    GLuint cursor_history_fbo;
     GLuint upload_pbos[CHRONO_UPLOAD_PBO_COUNT];
     GLuint text_mask_pbos[CHRONO_UPLOAD_PBO_COUNT];
     unsigned int upload_pbo_index;
@@ -65,7 +62,6 @@ struct _Renderer {
     int history_read_index;
     int cursor_width;
     int cursor_height;
-    int cursor_history_read_index;
     int cursor_damage_x0;
     int cursor_damage_y0;
     int cursor_damage_x1;
@@ -107,8 +103,6 @@ struct _Renderer {
     gboolean is_gles;
     gboolean history_valid;
     gboolean history_reset_requested;
-    gboolean cursor_history_valid;
-    gboolean cursor_history_reset_requested;
     gboolean pbo_upload_enabled;
     gboolean text_mask_pbo_upload_enabled;
     gboolean nvidia_gpu;

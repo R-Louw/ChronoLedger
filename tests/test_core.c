@@ -498,7 +498,6 @@ test_shader_profile_transition(void)
     g_assert_true(step.transition_completed);
     g_assert_false(presentation.profile_transition_active);
     g_assert_cmpfloat(presentation.settings.glow, ==, 0.0f);
-    g_assert_cmpfloat(presentation.settings.cursor_persistence, ==, 0.0f);
 }
 
 static void
@@ -590,6 +589,8 @@ static void test_calibration_saved_settings(void)
     chrono_preferences_init_defaults(&p);
     g_assert_true(chrono_preferences_read_local(json_node_get_object(json_parser_get_root(parser)), &p));
     g_assert_cmpfloat(p.settings.curvature_strength, ==, CHRONO_CURVATURE_DEFAULT);
+    g_assert_cmpfloat_with_epsilon(p.settings.vignette, .44f, .00001);
+    g_assert_cmpfloat_with_epsilon(p.settings.mask_strength, .36f, .00001);
     g_object_unref(parser);
     for (int palette = 12; palette < CHRONO_PALETTE_COUNT; ++palette) {
         p.settings.palette = (Palette)palette;
@@ -606,6 +607,13 @@ static void test_calibration_saved_settings(void)
         g_assert_cmpfloat(q.settings.curvature_strength, ==, .83f);
         JsonObject *local = json_object_get_object_member(json_node_get_object(n), "local_state");
         JsonArray *a = json_object_get_array_member(local, "sliders");
+        g_assert_cmpuint(json_array_get_length(a), ==, 6);
+        g_assert_cmpfloat(json_array_get_double_element(a, 2), ==, 0);
+        // The retired nonzero slot must not shift surviving settings.
+        json_node_set_double(json_array_get_element(a, 2), 1);
+        g_assert_true(chrono_preferences_read_local(json_node_get_object(n), &q));
+        g_assert_cmpfloat_with_epsilon(q.settings.vignette, .44f, .00001);
+        g_assert_cmpfloat_with_epsilon(q.settings.mask_strength, .36f, .00001);
         json_array_remove_element(a, 5);
         json_array_add_double_element(a, 1.1);
         g_assert_false(chrono_preferences_read_local(json_node_get_object(n), &q));
@@ -679,11 +687,14 @@ static void test_routines_and_local_state(void)
     g_date_time_unref(date); g_date_time_unref(tomorrow);
 }
 
+void register_routine_tests(void);
+
 int
 main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
     register_persistence_tests();
+    register_routine_tests();
     register_timing_tests();
     g_test_add_func("/presentation/saved-calibration", test_calibration_saved_settings);
     g_test_add_func("/routines/schedule-local-state", test_routines_and_local_state);

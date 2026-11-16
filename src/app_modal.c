@@ -1,3 +1,4 @@
+#include "app_input.h"
 #include "app_modal.h"
 #include "ui_palette.h"
 #include "renderer.h"
@@ -214,6 +215,7 @@ void app_modal_present(AppState *s, const char *title, const char *detail,
     s->shell.modal_overlay = m->shield;
     s->input.pointer_down = FALSE; s->input.active_slider = SLIDER_NONE;
     s->input.pointer_motion_pending = FALSE; s->input.cursor_motion_count = 0;
+    app_input_update_cursor(s, FALSE);
     s->input.pointer_inside = FALSE; s->input.hover_control = ui_control_none();
     cursor_state_clear(&s->input, s->renderer);
     renderer_invalidate_filtered(s->renderer);

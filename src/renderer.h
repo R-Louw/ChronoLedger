@@ -11,6 +11,7 @@ typedef struct {
     const AppSceneState *scene;
     const AppInputState *input;
     const AppViewSnapshot *view;
+    gboolean cursor_visible; /* interactive, unobscured custom pointer plane */
     double frame_delta;
     double render_interval;
     double frame_clock_fps;
@@ -44,9 +45,7 @@ void renderer_destroy(Renderer *renderer);
 
 gboolean renderer_is_ready(const Renderer *renderer);
 gint renderer_get_max_texture_size(const Renderer *renderer);
-gboolean renderer_cursor_history_is_valid(const Renderer *renderer);
-void renderer_invalidate_cursor_history(Renderer *renderer);
-void renderer_clear_cursor_history(Renderer *renderer);
+void renderer_clear_cursor_damage(Renderer *renderer);
 
 void renderer_realize(AppState *state);
 void renderer_unrealize(AppState *state);

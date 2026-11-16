@@ -10,8 +10,8 @@ The visible interface is split into four modes:
 
 - **Focus** manages open allocations and the active timer.
 - **Ledger** summarizes completed work and exposes import, export, and clear operations.
-- **Calibration** controls presentation and renderer settings.
 - **Routines** is a bounded acknowledgment queue, independent of timed allocations.
+- **Calibration** controls presentation and renderer settings.
 
 ## Module boundaries
 
@@ -39,7 +39,7 @@ The compact stacked Focus chamber reserves separate content and action bands. It
 
 `ui_layout.c` is a pure layout policy module. It rebuilds a complete `UiLayout` from logical dimensions and reports only whether the density class changed; it does not access GTK objects, document state, renderer state, or `AppState`.
 
-`cursor_state.c` owns inverse pointer mapping, bounded cursor-trail resampling and pruning, and cursor-phosphor lifetime. It accepts only scene, input, settings, preferences, and the opaque renderer operations needed to clear or invalidate cursor history.
+`cursor_state.c` owns inverse pointer mapping, bounded timestamped cross resampling and pruning, and analytic phosphor decay. It accepts only scene, input, settings, preferences, and the opaque renderer operation needed to clear cursor damage.
 
 `shader_profile.c` owns presentation defaults and profile interpolation. It mutates only `AppPresentationState` and reports which renderer/UI invalidations the controller must apply.
 
@@ -77,7 +77,7 @@ Completed rows use the model's completion order, also used to resolve row deleti
 
 - `renderer_upload.c` uploads the prepared Cairo scene and text mask through bounded direct/PBO paths.
 - `renderer_scene.c` builds semantic geometry and produces the composed scene target.
-- `renderer_cursor.c` owns cursor damage, geometry, AA, temporal history, phosphor, and final cursor compositing.
+- `renderer_cursor.c` owns cursor damage, cross geometry, AA, analytic afterglow, phosphor, and final cursor compositing.
 - `renderer_effects.c` owns selective scene AA, persistence history, final CRT caching, and presentation.
 - `renderer_support.c` contains small bounded numeric and GL helpers shared only inside the renderer subsystem.
 
@@ -130,7 +130,7 @@ Legacy compatibility is limited to recognized persisted fields. Bundled sample r
 - `chrono_store_add_task()` transfers ownership only on success.
 - Dialog callback records own any duplicated IDs or imported stores until the callback resolves.
 - Ledger replacement candidates are consumed by one controller transaction that saves, commits, or restores the previous owned store.
-- Cursor motion and trail buffers are fixed-size arrays embedded in `AppInputState`; `cursor_state.c` mutates them synchronously and no producer retains access outside the main thread.
+- Cursor motion and cross-sample buffers are fixed-size arrays embedded in `AppInputState`; `cursor_state.c` mutates them synchronously and no producer retains access outside the main thread.
 
 ## Persistence behavior
 
@@ -143,15 +143,20 @@ If the primary file cannot be read or validated, ChronoLedger enters a protected
 The application scene is event-driven rather than continuously redrawn. Static and dynamic dirty flags control Cairo reconstruction and GPU cache refresh. Once a frame is accepted, `main.c` captures one `AppViewSnapshot`, asks the UI layer to prepare CPU surfaces, then submits one immutable `RendererFrameInput`. Cairo construction and GPU geometry/compositing therefore receive the same timestamp and model snapshot. The renderer representation is private to the renderer subsystem; cache, CRT timing, and cursor-history state are mutated only through renderer functions, and UI/lifecycle code use renderer-owned predicates and commands. Native frame-clock work continues only while one of these conditions requires it:
 
 - scene or cache invalidation
-- pointer movement or cursor trail decay
-- cursor phosphor cleanup
+- pointer movement or finite cross-afterglow decay, including one final cleanup frame
 - finite scene-history decay and cleanup
 - presentation-profile transition
 - active timer progress crossing a visible step
 
 Scene changes with valid phosphor history charge a renderer-owned deadline of ten half-lives (about 0.61 seconds at Balanced persistence, at most 6.45 seconds). Decay-only frames run at the bounded 12 Hz progress cadence, reuse the filtered scene and CPU surfaces, invalidate only the final CRT cache, and never extend that deadline. Native cursor frames therefore retain the cached-base optimization even while a timer is running. The last frame resets history to remove quantized remnants, then full-window work returns to idle. Scene persistence uses real monotonic elapsed time rather than the animation-step clamp. Non-interactive draws reset history immediately because their scheduling has no native decay ticks. Context/resource release and explicit history resets discard the deadline.
 
-The cursor uses raw window coordinates so it remains aligned independently of optional scene curvature. When cursor shader effects are disabled, the raw cross and geometry trail are composited without cursor AA, history, glow, mask, or vignette.
+The cursor uses raw window coordinates so it remains aligned independently of optional scene curvature; hit testing uses the matching CRT source lookup. Its four-arm mint cross is the only deposited shape. There is no centerline stroke. `cursor_state.c` resamples queued input into at most 8192 timestamped cross positions, normally at most 1.5 logical pixels apart. A long input gap starts a newly charged sweep rather than interpolating unknown idle time. The latest raw position always supplies the live cross without position filtering.
+
+Afterglow is reconstructed from absolute monotonic sample ages each rendered frame. Persistence controls both scene persistence and cursor half-life (`0.025 + 0.62 * amount²` seconds); zero bypasses afterglow. Samples expire after ten half-lives (up to 6.45 seconds). Stationary ticks never recharge samples. The renderer combines premultiplied cross emission with `GL_MAX`, so overlapping arms and reversals do not accumulate brightness with input or refresh rate. Only the live cross receives the dark contrast separator. AA and restrained phosphor styling follow on the independent post-CRT plane. There are no recursive cursor history textures or diffusion passes: output quantization does not feed future frames. This exchanges two full-resolution feedback textures and a temporal pass for bounded per-frame geometry work during motion/decay; the scene cache remains reusable. Bounded sample storage can shorten the oldest, faintest tail under extreme input/path pressure; live positioning remains independent of this capacity.
+
+Cursor-only decay reuses the cached scene. The tick observes samples before and after pruning to request one final clean frame, then stops cursor-driven draws. Leaving, panels, focus/background transitions and context loss discard samples. Background motion does not accumulate a hidden path. When cursor shader effects are disabled, only the raw cross and its separator are composited, without afterglow, AA, glow, mask or vignette.
+
+The native pointer is hidden only after a successful custom presentation in an interactive, unobscured GL area of at least 560×360 logical pixels. Startup, undersized layouts, inactive windows, panels, diagnostics and GL failure/loss retain the native pointer. Resizing or restoring focus uses the native pointer until a successful frame replaces it; compositor focus decisions do not force animation in inactive windows.
 
 ## Refactoring constraints
 
@@ -182,6 +187,14 @@ New tests and tooling should be developed outside the production target or in a 
 
 `app_routines.c` presents one routine per page through the shader-composited Cairo scene and uses the shared in-window GTK operator panel for editing and removal confirmation. Panel signal/tick records are bounded by the window widget hierarchy; asynchronous confirmation records retain the parent window and resolve its object data on completion. No asynchronous path retains a raw AppState pointer. Due deadlines use Unix seconds; intervals schedule from acknowledgment, daily deadlines use next local midnight, and no task occurrences are generated. One outstanding reminder collapses missed deadlines. Existing GTK main-thread maintenance handles due announcements, reusing GNotification with stable slot IDs; notification timestamps are transient per-process suppression state. Existing background source lifetime/closing rules apply while routines exist.
 
+Scheduled confirmation extends a routine with a strictly validated optional `confirmation` object inside schema-7 `local_state`: minute of day (0–1439), window minutes (1–120), outstanding deadline (zero while waiting), and latched overdue flag. The existing `due` is always the original trigger; an outstanding deadline must equal `due + window * 60`. Legacy interval and midnight records omit the object and retain their behavior. Missing optional state uses existing defaults; malformed confirmation fields enter the same protected recovery path. Import remains ledger-only and preserves the complete local routine state; export includes it. Older binaries can read the document but cannot preserve this new schedule semantics when saving.
+
+`chrono_routine_maintain()` latches the deadline at the original trigger and overdue at expiration, returning whether persistence is needed. It never creates another occurrence, changes an outstanding deadline, or completes a task. Maintenance runs before announcements on both existing main-thread scheduling paths, independent of selected tab, operator panels or graphics availability. Only state transitions save; a failed save retains the existing visible failure/retry behavior. Recovery skips routine maintenance and rejects routine mutation. The existing source cleanup on close is unchanged.
+
+Confirmation clears the outstanding deadline/overdue latch and chooses the next daily local clock instant strictly after `max(now, original trigger)`, suppressing replay after a clock rollback. Late confirmations before today's scheduled time can choose today. Windows are elapsed wall-clock minutes from the trigger, including DST transitions. A booked waiting trigger and outstanding deadline keep their absolute Unix instant across timezone changes; subsequent scheduling uses the current timezone. GLib local-time construction selects standard time for an ambiguous DST time and the end of the gap for a nonexistent time. Forward jumps and sleep collapse all missed days into the original item, which can immediately be overdue on reconciliation. Backward jumps cannot undo a latched due/overdue state. Disabling suppresses untriggered occurrences while allowing existing items to expire or be confirmed; re-enabling reconciles the retained trigger. Schedule fields lock until confirmation; title edits keep the deadline. An item becoming due during editing also locks on Save with an explanation.
+
+Visible order and function keys are Focus (F1), Ledger (F2), Routines (F3), Calibration (F4). Internal mode indices follow that order; persistence explicitly maps to the established schema-7 semantic tab IDs (Focus=0, Ledger=1, Calibration=2, Routines=3) in both directions. This preserves last-selected tab meaning for existing files and round trips without a schema bump. Number keys retain ordinary input behavior.
+
 ## Operator panels and Calibration
 
 `app_modal.c` owns a GTK overlay above the GL area, with shared palette parameters from `ui_palette.c`, instrument typography, profile/manual glow, explicit focus outlines and destructive accents. GTK entries and buttons stay crisp and unwarped, independently of the scene's mask, persistence and curvature; they remain available after renderer failure. Only panel bodies scroll in short tiles; actions stay visible. The GL widget is insensitive during a panel and the hidden entry is excluded from focus. A capture controller cycles focus inside the panel and consumes Escape, while the window shortcut controller defers all keys. Dismissal restores the previous focus. Closing cancels the panel before stopping maintenance; it does not run a nested loop or pause timers/reminders. The panel's sizing tick is widget-owned and disappears with the overlay. Native file pickers and the no-overlay GTK alert fallback are retained.
@@ -190,6 +203,6 @@ Confirmations use owned `GTask` results and a finish adapter for panel versus na
 
 The original twelve palette indices remain stable, followed by Paper, Cobalt, Rose, Olive and Copper. Profile selection and Balanced restoration preserve palette and effect toggles while restoring numeric presentation defaults. Calibration always lays out all controls; a bounded vertical viewport scrolls on wheel, Page Up/Down and Home/End. Layout computation preserves/clamps the offset across resizes. Dynamic drawing and hit testing use the same translated rectangles and viewport. At ordinary widths the additions occupy a separate row of five; narrow layouts reflow to four columns.
 
-Curvature strength is normalized to 0–1 and maps to 0–0.8 in the shader and inverse pointer lookup. Its 40% default reproduces the former fixed 0.32 warp; the toggle gates the effect without losing its setting. The raw cursor plane remains independent of curvature. Profile interpolation and manual adjustments refresh pointer mapping from the live presentation value. Curvature dragging solves the value-dependent source lookup so the moving handle stays under the raw pointer. New local state stores six sliders; old five-slider arrays retain the default curvature value.
+Curvature strength is normalized to 0–1 and maps to 0–0.8 in the shader and inverse pointer lookup. Its 40% default reproduces the former fixed 0.32 warp; the toggle gates the effect without losing its setting. The raw cursor plane remains independent of curvature. Profile interpolation and manual adjustments refresh pointer mapping from the live presentation value. Curvature dragging solves the value-dependent source lookup so the moving handle stays under the raw pointer. The on-screen controls now expose five sliders. The serialized schema-7 array remains six slots: glow, persistence, retired centerline slot (written as zero and ignored on read), vignette, mask, curvature. Historical five-slot arrays are also accepted and retain the default curvature value. The retired slot is still range/type validated; removing its runtime control never shifts surviving saved settings.
 
 Mask now applies a four-by-three physical-pixel aperture pattern after clarity restoration and display gamma, using a power response of 0.85 and bounded attenuation. Zero and a disabled toggle both bypass the mask; maximum deliberately exposes the aperture gaps. Cursor effects use the same response only while their own effects toggle is enabled.

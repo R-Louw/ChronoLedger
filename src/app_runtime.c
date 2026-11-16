@@ -133,6 +133,9 @@ app_refresh_power_policy(AppState *state)
     ChronoPowerMode desired = desired_power_mode(state);
     state->runtime.power_mode = desired;
 
+    if (desired != previous)
+        app_input_update_cursor(state, FALSE);
+
     if (desired == CHRONO_POWER_INTERACTIVE) {
         stop_low_power_source(state);
         if (previous != CHRONO_POWER_INTERACTIVE) {
@@ -147,6 +150,8 @@ app_refresh_power_policy(AppState *state)
     }
 
     stop_tick(state);
+    state->input.cursor_motion_count = 0;
+    state->input.pointer_motion_pending = FALSE;
     cursor_state_clear(&state->input, state->renderer);
 
     if (desired == CHRONO_POWER_BACKGROUND_CLOCK) {
@@ -239,6 +244,8 @@ on_gl_unrealize(GtkGLArea *area, gpointer user_data)
 {
     (void)area;
     AppState *state = user_data;
+    app_input_update_cursor(state, FALSE);
+    cursor_state_clear(&state->input, state->renderer);
     stop_tick(state);
     stop_low_power_source(state);
     renderer_unrealize(state);
@@ -267,6 +274,8 @@ on_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer user_data)
     gboolean logical_size_changed =
         width != state->scene.logical_width ||
         height != state->scene.logical_height;
+    if (logical_size_changed)
+        app_input_update_cursor(state, FALSE);
     ui_update_layout(state, width, height);
     if (logical_size_changed)
         app_clamp_view_offsets(state);
@@ -311,6 +320,8 @@ on_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer user_data)
     gboolean hover_visible = ui_get_hover_highlight(
         state, &hover_rect, &hover_dangerous);
     RendererFrameInput frame = {
+        .cursor_visible = state->runtime.power_mode == CHRONO_POWER_INTERACTIVE &&
+                          state->shell.modal_overlay == NULL,
         .presentation = &state->presentation,
         .scene = &state->scene,
         .input = &state->input,
@@ -343,6 +354,8 @@ on_gl_render(GtkGLArea *area, GdkGLContext *context, gpointer user_data)
         return TRUE;
     }
 
+    app_input_update_cursor(state, TRUE);
+
     if (result.scene_uploaded)
         state->scene.scene_dirty = FALSE;
     state->runtime.last_draw_frame_counter = frame_counter;
@@ -362,10 +375,13 @@ update_timer_state(AppState *state, gint64 now_us)
         ui_invalidate_dynamic(state);
     }
     if (!state->session.data_load_failed) {
-        const ChronoPreferences *p = app_preferences_const(state);
+        ChronoPreferences *p = app_preferences(state);
+        gboolean changed = FALSE;
+        gint64 wall_now = g_get_real_time() / G_USEC_PER_SEC;
         for (guint i = 0; i < p->routine_count; i++) {
-            const ChronoRoutine *r = &p->routines[i];
-            if (!chrono_routine_due(r, g_get_real_time() / G_USEC_PER_SEC) ||
+            ChronoRoutine *r = &p->routines[i];
+            changed |= chrono_routine_maintain(r, wall_now);
+            if (!chrono_routine_due(r, wall_now) ||
                 state->session.routine_notified_due[i] == r->due) continue;
             state->session.routine_notified_due[i] = r->due;
             app_set_annunciator(state, ANNUNCIATOR_CAUTION, r->title);
@@ -377,6 +393,10 @@ update_timer_state(AppState *state, gint64 now_us)
                 g_free(id);
                 g_object_unref(n);
             }
+        }
+        if (changed) {
+            app_save_state(state);
+            ui_invalidate_dynamic(state);
         }
     }
     ChronoTask *expired = chrono_store_update_expired(app_store(state), now_us);
@@ -510,28 +530,14 @@ on_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
     gboolean scene_or_cache_dirty =
         state->scene.static_dirty || state->scene.scene_dirty ||
         renderer_needs_render(state->renderer);
-    gboolean trail_active = state->input.pointer_inside &&
-        state->presentation.settings.cursor_persistence > 0.001f &&
-        state->input.cursor_trail_count > 1;
-    gboolean cursor_phosphor_cleanup =
-        app_preferences(state)->cursor_shader_effects_enabled &&
-        renderer_cursor_history_is_valid(state->renderer) &&
-        state->input.cursor_phosphor_active_until_us > 0 &&
-        now_us >= state->input.cursor_phosphor_active_until_us;
-    if (cursor_phosphor_cleanup) {
-        /* Queue one final native frame after the cursor-only phosphor tail has
-         * expired. Without this cleanup presentation the last faint history
-         * sample would remain frozen in an event-driven compositor buffer. */
-        state->input.cursor_phosphor_active_until_us = 0;
-        renderer_invalidate_cursor_history(state->renderer);
-    }
-    gboolean cursor_phosphor_active =
-        app_preferences(state)->cursor_shader_effects_enabled &&
-        now_us < state->input.cursor_phosphor_active_until_us;
+    gboolean had_afterglow = state->input.cursor_sample_count > 0;
+    cursor_state_update(&state->input, &state->presentation.settings,
+                        app_preferences_const(state), state->renderer, now_us);
+    gboolean cursor_active = state->input.cursor_sample_count > 0;
     gboolean render_requested = chrono_render_request_needed(
         state->presentation.profile_transition_active,
         scene_or_cache_dirty, pointer_changed,
-        trail_active || cursor_phosphor_active || cursor_phosphor_cleanup);
+        had_afterglow || cursor_active);
     if (!render_requested)
         return G_SOURCE_CONTINUE;
 
@@ -553,13 +559,6 @@ on_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gpointer user_data)
         if (state->presentation.active_tab == CHRONO_MODE_CALIBRATION)
             ui_invalidate_dynamic(state);
     }
-    if (pointer_changed || trail_active || cursor_phosphor_active)
-        cursor_state_update(&state->input,
-                            &state->presentation.settings,
-                            app_preferences_const(state),
-                            state->renderer,
-                            now_us);
-
     gtk_gl_area_queue_render(GTK_GL_AREA(widget));
     return G_SOURCE_CONTINUE;
 }

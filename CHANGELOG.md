@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add fixed daily clock confirmations within Routines, with configurable windows, persistent overdue items, and one-click confirmation independent of allocation timers.
+- Put Routines on F3 and Calibration on F4 while preserving the meaning of saved tab selections.
+
+- Remove the cursor centerline and its Calibration control while accepting historical saved slider arrays.
+- Reconstruct continuous cross afterglow from timestamped motion with refresh-independent decay, finite cleanup and restrained emission; remove recursive cursor history textures.
+- Retain the native pointer until custom rendering succeeds, including undersized layouts, inactive windows, panels and GL failure/recovery.
+
 - Unify alerts, confirmations and routine editing in palette-aware in-window operator panels with modal input isolation, focus restoration and Cancel-first destructive actions.
 - Add Paper, Cobalt, Rose, Olive and Copper schemes below the original twelve; preserve palette selection across presentation profiles.
 - Give Mask a visible aperture progression after clarity restoration and restore persisted curvature strength with matching pointer mapping.

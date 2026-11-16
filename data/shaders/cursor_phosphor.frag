@@ -1,26 +1,14 @@
 in vec2 v_uv;
 out vec4 out_color;
 uniform sampler2D u_current;
-uniform sampler2D u_history;
 uniform vec2 u_inverse_resolution;
 uniform float u_glow;
-uniform float u_history_strength;
 uniform float u_mask_strength;
 uniform float u_vignette;
 uniform float u_effects_enabled;
 vec4 cursor_current(vec2 uv)
 {
     return texture(u_current, uv);
-}
-vec4 cursor_retained(vec2 uv)
-{
-    vec4 now = cursor_current(uv);
-    if (u_history_strength <= 0.0)
-        return now;
-    vec4 history = texture(u_history, uv);
-    vec3 emission = max(now.rgb, history.rgb * u_history_strength);
-    float alpha = max(now.a, history.a * u_history_strength);
-    return vec4(emission, alpha);
 }
 vec3 cursor_straight(vec4 sample_value)
 {
@@ -34,7 +22,7 @@ void main(void)
         return;
     }
     vec2 t = max(u_inverse_resolution, vec2(0.0000001));
-    vec4 base = cursor_retained(uv);
+    vec4 base = cursor_current(uv);
     vec3 base_linear = pow(max(cursor_straight(base), vec3(0.0)), vec3(2.2));
     float base_luma = dot(base_linear, vec3(0.2126, 0.7152, 0.0722));
     float alpha = base.a;
@@ -43,8 +31,8 @@ void main(void)
         vec2 axial = t * 1.15;
         vec2 diagonal = t * 2.75;
         vec4 blur = vec4(0.0);
-        /* Bloom is sourced from the current cursor scene, not recursively
-         * from retained phosphor history. Precomputed offsets also avoid
+        /* Bloom uses the analytically reconstructed cursor scene and never
+         * feeds a later frame. Precomputed offsets also avoid
          * repeating the same scalar multiplies for all eight taps. */
         blur += cursor_current(uv + vec2( axial.x, 0.0)) * 0.20;
         blur += cursor_current(uv + vec2(-axial.x, 0.0)) * 0.20;

@@ -337,7 +337,7 @@ const char *
 slider_name(SliderId slider)
 {
     static const char *names[CHRONO_SLIDER_COUNT] = {
-        "Glow", "Persistence", "Cursor trail", "Vignette", "Mask strength", "Curvature strength",
+        "Glow", "Persistence", "Vignette", "Mask strength", "Curvature strength",
     };
     if (slider < SLIDER_GLOW || slider >= CHRONO_SLIDER_COUNT)
         return "Unknown";
@@ -352,7 +352,6 @@ slider_value(ShaderSettings *settings, SliderId slider)
     switch (slider) {
     case SLIDER_GLOW: return &settings->glow;
     case SLIDER_PERSISTENCE: return &settings->persistence;
-    case SLIDER_CURSOR_PERSISTENCE: return &settings->cursor_persistence;
     case SLIDER_VIGNETTE: return &settings->vignette;
     case SLIDER_MASK: return &settings->mask_strength;
     case SLIDER_CURVATURE: return &settings->curvature_strength;

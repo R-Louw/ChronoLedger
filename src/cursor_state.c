@@ -96,249 +96,102 @@ cursor_state_refresh_mapping(AppInputState *input,
                              &input->pointer_y);
 }
 
-static void
-cursor_trail_reset_samples(AppInputState *input)
+/* All decay is evaluated from absolute monotonic age, never render count. */
+double
+cursor_state_half_life(float persistence)
 {
-    input->cursor_trail_head = 0;
-    input->cursor_trail_count = 0;
-    input->cursor_trail_last_sample_us = 0;
-    input->cursor_trail_last_x = 0.0;
-    input->cursor_trail_last_y = 0.0;
+    double amount = isfinite(persistence) ? CLAMP(persistence, 0.0f, 1.0f) : 0;
+    return amount > 0.0001 ? 0.025 + amount * amount * 0.62 : 0;
+}
+
+float
+cursor_state_emission(float persistence, gint64 age_us)
+{
+    double half_life = cursor_state_half_life(persistence);
+    if (half_life == 0 || age_us < 0 || age_us >= half_life * 10 * G_USEC_PER_SEC)
+        return 0;
+    return (float)((0.10 + CLAMP(persistence, 0.0f, 1.0f) * 0.30) *
+                   exp2(-(double)age_us / G_USEC_PER_SEC / half_life));
 }
 
 void
 cursor_state_clear(AppInputState *input, Renderer *renderer)
 {
     g_return_if_fail(input != NULL);
-    cursor_trail_reset_samples(input);
-    input->cursor_phosphor_active_until_us = 0;
-    renderer_clear_cursor_history(renderer);
-}
-
-static double
-cursor_trail_duration_seconds(float amount)
-{
-    if (!isfinite(amount) || amount <= 0.001f)
-        return 0.0;
-    double normalized = CLAMP((double)amount, 0.0, 1.0);
-    return 0.15 + pow(normalized, 4.0) * 29.85;
+    input->cursor_sample_head = input->cursor_sample_count = 0;
+    input->cursor_anchor_us = 0;
+    renderer_clear_cursor_damage(renderer);
 }
 
 static void
-cursor_trail_append(AppInputState *input,
-                    double x,
-                    double y,
-                    gint64 timestamp_us)
+append_sample(AppInputState *input, double x, double y, gint64 time_us)
 {
-    if (!isfinite(x) || !isfinite(y) || timestamp_us <= 0)
-        return;
-    input->cursor_trail_head %= CHRONO_CURSOR_TRAIL_SAMPLES;
-    input->cursor_trail_count = MIN(input->cursor_trail_count,
-                                    (unsigned int)CHRONO_CURSOR_TRAIL_SAMPLES);
-    CursorTrailPoint *point = &input->cursor_trail[input->cursor_trail_head];
-    *point = (CursorTrailPoint){x, y, timestamp_us};
-    input->cursor_trail_head =
-        (input->cursor_trail_head + 1u) % CHRONO_CURSOR_TRAIL_SAMPLES;
-    if (input->cursor_trail_count < CHRONO_CURSOR_TRAIL_SAMPLES)
-        ++input->cursor_trail_count;
-}
-
-static void
-cursor_trail_prune(AppInputState *input,
-                   const ShaderSettings *settings,
-                   gint64 now_us)
-{
-    gint64 retention_us = (gint64)llround(
-        cursor_trail_duration_seconds(settings->cursor_persistence) *
-        G_USEC_PER_SEC);
-    input->cursor_trail_count = MIN(input->cursor_trail_count,
-                                    (unsigned int)CHRONO_CURSOR_TRAIL_SAMPLES);
-    gint64 retention_limit_us = saturating_add_i64(retention_us, 50000);
-    while (input->cursor_trail_count > 1) {
-        unsigned int oldest =
-            (input->cursor_trail_head + CHRONO_CURSOR_TRAIL_SAMPLES -
-             input->cursor_trail_count) % CHRONO_CURSOR_TRAIL_SAMPLES;
-        const CursorTrailPoint *point = &input->cursor_trail[oldest];
-        if (point->timestamp_us > 0 && point->timestamp_us <= now_us &&
-            now_us - point->timestamp_us <= retention_limit_us)
-            break;
-        --input->cursor_trail_count;
-    }
-}
-
-static void
-cursor_phosphor_charge(AppInputState *input,
-                       const ShaderSettings *settings,
-                       const ChronoPreferences *preferences,
-                       Renderer *renderer,
-                       gint64 now_us)
-{
-    if (!preferences->cursor_shader_effects_enabled) {
-        input->cursor_phosphor_active_until_us = 0;
-        renderer_invalidate_cursor_history(renderer);
-        return;
-    }
-
-    double raw_amount = settings->persistence;
-    double amount = isfinite(raw_amount)
-        ? CLAMP(raw_amount, 0.0, 1.0)
-        : 0.0;
-    if (amount <= 0.0001) {
-        input->cursor_phosphor_active_until_us = 0;
-        renderer_invalidate_cursor_history(renderer);
-        return;
-    }
-    if (input->cursor_phosphor_active_until_us > 0 &&
-        now_us >= input->cursor_phosphor_active_until_us) {
-        renderer_clear_cursor_history(renderer);
-    }
-    double half_life = 0.025 + amount * amount * 0.62;
-    gint64 tail_us = (gint64)llround(MAX(0.18, half_life * 5.0) *
-                                     G_USEC_PER_SEC);
-    input->cursor_phosphor_active_until_us =
-        MAX(input->cursor_phosphor_active_until_us,
-            saturating_add_i64(now_us, tail_us));
+    input->cursor_samples[input->cursor_sample_head] =
+        (CursorPhosphorPoint){x, y, time_us};
+    input->cursor_sample_head = (input->cursor_sample_head + 1) % CHRONO_CURSOR_SAMPLES;
+    input->cursor_sample_count = MIN(input->cursor_sample_count + 1, CHRONO_CURSOR_SAMPLES);
 }
 
 void
-cursor_state_record_motion(AppInputState *input,
-                           const ShaderSettings *settings,
-                           const ChronoPreferences *preferences,
-                           Renderer *renderer,
-                           double current_x,
-                           double current_y,
-                           gint64 now_us)
-{
-    g_return_if_fail(input != NULL);
-    g_return_if_fail(settings != NULL);
-    g_return_if_fail(preferences != NULL);
-    if (!input->pointer_inside || !isfinite(current_x) ||
-        !isfinite(current_y) || now_us <= 0)
-        return;
-
-    cursor_phosphor_charge(input, settings, preferences, renderer, now_us);
-    if (cursor_trail_duration_seconds(settings->cursor_persistence) <= 0.0) {
-        cursor_trail_reset_samples(input);
-        return;
-    }
-
-    cursor_trail_prune(input, settings, now_us);
-    if (input->cursor_trail_count == 0 ||
-        input->cursor_trail_last_sample_us <= 0) {
-        cursor_trail_append(input, current_x, current_y, now_us);
-        input->cursor_trail_last_sample_us = now_us;
-        input->cursor_trail_last_x = current_x;
-        input->cursor_trail_last_y = current_y;
-        return;
-    }
-
-    double start_x = input->cursor_trail_last_x;
-    double start_y = input->cursor_trail_last_y;
-    if (!isfinite(start_x) || !isfinite(start_y)) {
-        cursor_trail_reset_samples(input);
-        cursor_trail_append(input, current_x, current_y, now_us);
-        input->cursor_trail_last_sample_us = now_us;
-        input->cursor_trail_last_x = current_x;
-        input->cursor_trail_last_y = current_y;
-        return;
-    }
-    double dx = current_x - start_x;
-    double dy = current_y - start_y;
-    double distance = hypot(dx, dy);
-    gint64 start_us = input->cursor_trail_last_sample_us;
-    if (!isfinite(distance)) {
-        cursor_trail_reset_samples(input);
-        cursor_trail_append(input, current_x, current_y, now_us);
-        input->cursor_trail_last_sample_us = now_us;
-        input->cursor_trail_last_x = current_x;
-        input->cursor_trail_last_y = current_y;
-        return;
-    }
-    gint64 elapsed_us = nonnegative_elapsed_us(now_us, start_us);
-    if (now_us < start_us)
-        now_us = start_us;
-
-    if (distance < 0.5) {
-        unsigned int latest_index =
-            (input->cursor_trail_head + CHRONO_CURSOR_TRAIL_SAMPLES - 1u) %
-            CHRONO_CURSOR_TRAIL_SAMPLES;
-        CursorTrailPoint *latest = &input->cursor_trail[latest_index];
-        latest->x = current_x;
-        latest->y = current_y;
-        latest->timestamp_us = now_us;
-        input->cursor_trail_last_sample_us = now_us;
-        input->cursor_trail_last_x = current_x;
-        input->cursor_trail_last_y = current_y;
-        return;
-    }
-
-    double requested_samples = ceil(
-        distance / CHRONO_REFERENCE_CURSOR_SAMPLE_SPACING);
-    requested_samples = CLAMP(requested_samples, 1.0, 2048.0);
-    unsigned int sample_count = (unsigned int)requested_samples;
-    gint64 whole = elapsed_us / sample_count;
-    gint64 remainder = elapsed_us % sample_count;
-    for (unsigned int i = 1; i <= sample_count; ++i) {
-        double t = (double)i / (double)sample_count;
-        gint64 interpolated_us = whole * i +
-            (remainder * i) / sample_count;
-        cursor_trail_append(input,
-                            start_x + dx * t,
-                            start_y + dy * t,
-                            saturating_add_i64(start_us, interpolated_us));
-    }
-
-    input->cursor_trail_last_sample_us = now_us;
-    input->cursor_trail_last_x = current_x;
-    input->cursor_trail_last_y = current_y;
-}
-
-void
-cursor_state_update(AppInputState *input,
-                    const ShaderSettings *settings,
-                    const ChronoPreferences *preferences,
-                    Renderer *renderer,
+cursor_state_update(AppInputState *input, const ShaderSettings *settings,
+                    const ChronoPreferences *preferences, Renderer *renderer,
                     gint64 now_us)
 {
-    g_return_if_fail(input != NULL);
-    g_return_if_fail(settings != NULL);
-    g_return_if_fail(preferences != NULL);
-    if (!isfinite(input->raw_pointer_x) ||
-        !isfinite(input->raw_pointer_y) || now_us <= 0)
-        return;
-    if (cursor_trail_duration_seconds(settings->cursor_persistence) <= 0.0) {
-        cursor_trail_reset_samples(input);
+    g_return_if_fail(input != NULL && settings != NULL && preferences != NULL);
+    if (!preferences->cursor_shader_effects_enabled ||
+        cursor_state_half_life(settings->persistence) == 0) {
+        cursor_state_clear(input, renderer);
         return;
     }
-    if (!input->pointer_inside)
-        return;
+    while (input->cursor_sample_count > 0) {
+        guint oldest = (input->cursor_sample_head + CHRONO_CURSOR_SAMPLES -
+                        input->cursor_sample_count) % CHRONO_CURSOR_SAMPLES;
+        gint64 age = nonnegative_elapsed_us(now_us, input->cursor_samples[oldest].timestamp_us);
+        if (cursor_state_emission(settings->persistence, age) > 0)
+            break;
+        --input->cursor_sample_count;
+    }
+}
 
-    cursor_trail_prune(input, settings, now_us);
-    if (input->cursor_trail_count == 0 ||
-        input->cursor_trail_last_sample_us <= 0) {
-        cursor_state_record_motion(input, settings, preferences, renderer,
-                                   input->raw_pointer_x,
-                                   input->raw_pointer_y, now_us);
+void
+cursor_state_record_motion(AppInputState *input, const ShaderSettings *settings,
+                           const ChronoPreferences *preferences, Renderer *renderer,
+                           double x, double y, gint64 now_us)
+{
+    g_return_if_fail(input != NULL && settings != NULL && preferences != NULL);
+    if (!input->pointer_inside || !isfinite(x) || !isfinite(y) || now_us <= 0)
+        return;
+    if (!preferences->cursor_shader_effects_enabled ||
+        cursor_state_half_life(settings->persistence) == 0) {
+        cursor_state_clear(input, renderer);
         return;
     }
-
-    double dx = input->raw_pointer_x - input->cursor_trail_last_x;
-    double dy = input->raw_pointer_y - input->cursor_trail_last_y;
-    if (hypot(dx, dy) >= 0.5) {
-        cursor_state_record_motion(input, settings, preferences, renderer,
-                                   input->raw_pointer_x,
-                                   input->raw_pointer_y, now_us);
-        return;
+    if (input->cursor_anchor_us == 0) {
+        append_sample(input, x, y, now_us);
+    } else {
+        now_us = MAX(now_us, input->cursor_anchor_us);
+        /* No input path is known across a long pause or stalled event loop.
+         * Re-excite departure now; never invent a seconds-long sweep. */
+        if (nonnegative_elapsed_us(now_us, input->cursor_anchor_us) > 100000)
+            input->cursor_anchor_us = now_us;
+        double distance = hypot(x - input->cursor_anchor_x, y - input->cursor_anchor_y);
+        if (!isfinite(distance)) return;
+        if (distance > 0.01) {
+            /* Re-excite the old live cross when departure follows a pause. */
+            append_sample(input, input->cursor_anchor_x, input->cursor_anchor_y,
+                          input->cursor_anchor_us);
+            guint count = (guint)CLAMP(ceil(distance / CHRONO_CURSOR_SAMPLE_SPACING), 1, CHRONO_CURSOR_SAMPLES / 2);
+            gint64 elapsed = nonnegative_elapsed_us(now_us, input->cursor_anchor_us);
+            for (guint i = 1; i <= count; ++i) {
+                double t = (double)i / count;
+                append_sample(input, input->cursor_anchor_x + (x - input->cursor_anchor_x) * t,
+                              input->cursor_anchor_y + (y - input->cursor_anchor_y) * t,
+                              saturating_add_i64(input->cursor_anchor_us,
+                                  elapsed / count * i + (elapsed % count) * i / count));
+            }
+        }
     }
-
-    unsigned int latest_index =
-        (input->cursor_trail_head + CHRONO_CURSOR_TRAIL_SAMPLES - 1u) %
-        CHRONO_CURSOR_TRAIL_SAMPLES;
-    CursorTrailPoint *latest = &input->cursor_trail[latest_index];
-    latest->x = input->raw_pointer_x;
-    latest->y = input->raw_pointer_y;
-    latest->timestamp_us = now_us;
-    input->cursor_trail_last_sample_us = now_us;
-    input->cursor_trail_last_x = input->raw_pointer_x;
-    input->cursor_trail_last_y = input->raw_pointer_y;
+    input->cursor_anchor_x = x;
+    input->cursor_anchor_y = y;
+    input->cursor_anchor_us = now_us;
 }

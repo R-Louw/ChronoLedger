@@ -11,7 +11,6 @@ shader_resource_path(RendererShaderId shader)
         [RENDERER_SHADER_GEOMETRY_VERTEX] = "/io/github/chronoledger/shaders/geometry.vert",
         [RENDERER_SHADER_GEOMETRY_FRAGMENT] = "/io/github/chronoledger/shaders/geometry.frag",
         [RENDERER_SHADER_CURSOR_AA_FRAGMENT] = "/io/github/chronoledger/shaders/cursor_aa.frag",
-        [RENDERER_SHADER_CURSOR_PERSISTENCE_FRAGMENT] = "/io/github/chronoledger/shaders/cursor_persistence.frag",
         [RENDERER_SHADER_CURSOR_PHOSPHOR_FRAGMENT] = "/io/github/chronoledger/shaders/cursor_phosphor.frag",
         [RENDERER_SHADER_CRT_FRAGMENT] = "/io/github/chronoledger/shaders/crt.frag",
         [RENDERER_SHADER_PERSISTENCE_FRAGMENT] = "/io/github/chronoledger/shaders/persistence.frag",
