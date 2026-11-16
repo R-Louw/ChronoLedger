@@ -16,6 +16,22 @@ static GtkWindow* focus_window;
 static guint phase;
 static gboolean panel_scrolled;
 static const char* capture_name;
+static guint sweep_focus_retries;
+
+static gboolean
+sweep_has_focus(void)
+{
+    if (gtk_window_is_active(test_state->shell.window)) {
+        sweep_focus_retries = 0;
+        return TRUE;
+    }
+    /* Obtain real focus for initial active sweeps. Later unmap/remap checks
+     * deliberately accept GTK-owned inactive state and require native fallback. */
+    g_assert_cmpuint(sweep_focus_retries++, <, 4);
+    g_print("Waiting for test-window focus before sweep\n");
+    gtk_window_present(test_state->shell.window);
+    return FALSE;
+}
 static gboolean
 capture_frame(GtkGLArea* area, GdkGLContext* context, gpointer unused)
 {
@@ -74,6 +90,26 @@ static void focus_test_window(void)
 {
     gtk_window_present(test_state->shell.window);
     focus_title("ChronoLedger validation");
+}
+static void prepare_size_checks(void)
+{
+    GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(test_state->shell.window));
+    if (g_getenv("HYPRLAND_INSTANCE_SIGNATURE") == NULL ||
+        g_strcmp0(G_OBJECT_TYPE_NAME(display), "GdkX11Display") != 0)
+        return;
+    /* Hyprland may keep XWayland clients tiled despite GTK size hints. Only
+     * this disposable window floats, so minimum-size checks get an allocation
+     * that actually exercises their predicate. No persistent rule is changed. */
+    char *argv[] = {"hyprctl", "eval",
+        "hl.dispatch(hl.dsp.window.float({action = \"set\", window = \"title:^(ChronoLedger validation)$\"}))",
+        NULL};
+    GError *error = NULL;
+    gint status = 0;
+    g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL,
+                 NULL, NULL, &status, &error);
+    g_assert_no_error(error);
+    g_assert_true(g_spawn_check_wait_status(status, &error));
+    g_assert_no_error(error);
 }
 static void capture_window(const char *name)
 {
@@ -170,6 +206,7 @@ step(gpointer unused)
     }
     switch (++phase) {
     case 1:
+        prepare_size_checks();
         focus_test_window();
         g_print("Initial allocation %dx%d\n", gtk_widget_get_width(GTK_WIDGET(s->shell.gl_area)),
             gtk_widget_get_height(GTK_WIDGET(s->shell.gl_area)));
@@ -187,7 +224,39 @@ step(gpointer unused)
         capture_name = "interactive";
         gtk_gl_area_queue_render(s->shell.gl_area);
         break;
-    case 3: {
+    case 3:
+        if (!sweep_has_focus()) {
+            focus_test_window();
+            --phase;
+            return G_SOURCE_CONTINUE;
+        }
+        start_sweep(.24f);
+        break;
+    case 4:
+        expect_cursor(TRUE);
+        capture_name = "motion-ordinary";
+        gtk_gl_area_queue_render(s->shell.gl_area);
+        break;
+    case 5:
+        break;
+    case 6:
+        if (!sweep_has_focus()) {
+            focus_test_window();
+            --phase;
+            return G_SOURCE_CONTINUE;
+        }
+        start_sweep(1);
+        break;
+    case 7:
+        expect_cursor(TRUE);
+        capture_name = "motion-increased";
+        gtk_gl_area_queue_render(s->shell.gl_area);
+        break;
+    case 8:
+        s->presentation.settings.persistence = .24f;
+        renderer_request_history_reset(s->renderer);
+        break;
+    case 9: {
         expect_cursor(s->runtime.power_mode == CHRONO_POWER_INTERACTIVE);
         // Curvature and hover share the shader source lookup.
         app_preferences(s)->curvature_enabled = TRUE;
@@ -212,7 +281,7 @@ step(gpointer unused)
         g_assert_cmpuint(s->input.cursor_sample_count, ==, 0);
         break;
     }
-    case 4:
+    case 10:
         app_modal_cancel(s);
         on_enter(NULL, 300, 200, s);
         gtk_widget_set_size_request(GTK_WIDGET(s->shell.gl_area), 360, 240);
@@ -220,7 +289,7 @@ step(gpointer unused)
         capture_name = "below-minimum";
         gtk_gl_area_queue_render(s->shell.gl_area);
         break;
-    case 5:
+    case 11:
         g_print("Small allocation %dx%d\n", gtk_widget_get_width(GTK_WIDGET(s->shell.gl_area)),
             gtk_widget_get_height(GTK_WIDGET(s->shell.gl_area)));
         if (s->presentation.layout.density == UI_DENSITY_TOO_SMALL)
@@ -230,7 +299,7 @@ step(gpointer unused)
         gtk_widget_set_size_request(GTK_WIDGET(s->shell.gl_area), 800, 540);
         gtk_window_set_default_size(s->shell.window, 800, 540);
         break;
-    case 6:
+    case 12:
         on_enter(NULL, 300, 200, s);
         focus_window = GTK_WINDOW(gtk_window_new());
         gtk_window_set_application(focus_window, s->shell.application);
@@ -240,7 +309,7 @@ step(gpointer unused)
         gtk_window_present(focus_window);
         focus_title("Cursor study focus probe");
         break;
-    case 7:
+    case 13:
         g_assert_false(gtk_window_is_active(s->shell.window));
         expect_cursor(FALSE);
         g_assert_cmpuint(s->input.cursor_sample_count, ==, 0);
@@ -249,32 +318,32 @@ step(gpointer unused)
         focus_window = NULL;
         focus_test_window();
         break;
-    case 8:
+    case 14:
         g_assert_true(gtk_window_is_active(s->shell.window));
         on_enter(NULL, 300, 200, s);
         gtk_gl_area_queue_render(s->shell.gl_area);
         break;
-    case 9:
+    case 15:
         expect_cursor(TRUE);
         app_preferences(s)->cursor_shader_effects_enabled = FALSE;
         on_motion(NULL, 400, 250, s);
         capture_name = "bypass";
         gtk_gl_area_queue_render(s->shell.gl_area);
         break;
-    case 10:
+    case 16:
         expect_cursor(TRUE);
         g_assert_cmpuint(s->input.cursor_sample_count, ==, 0);
         gtk_widget_set_visible(GTK_WIDGET(s->shell.window), FALSE);
         expect_cursor(FALSE);
         g_assert_cmpuint(s->runtime.tick_callback_id, ==, 0);
         break;
-    case 11:
+    case 17:
         gtk_window_present(s->shell.window);
         break;
-    case 12:
+    case 18:
         on_enter(NULL, 300, 200, s);
         break;
-    case 13:
+    case 19:
         expect_cursor(s->runtime.power_mode == CHRONO_POWER_INTERACTIVE);
         // Actual GL resource teardown followed by native fallback and recovery.
         gtk_gl_area_make_current(s->shell.gl_area);
@@ -286,12 +355,12 @@ step(gpointer unused)
         app_refresh_power_policy(s);
         on_enter(NULL, 300, 200, s);
         break;
-    case 14:
+    case 20:
         expect_cursor(s->runtime.power_mode == CHRONO_POWER_INTERACTIVE);
         capture_name = "recovered";
         gtk_gl_area_queue_render(s->shell.gl_area);
         break;
-    case 15: {
+    case 21: {
         gtk_widget_set_size_request(GTK_WIDGET(s->shell.gl_area), 560, 360);
         gtk_window_set_default_size(s->shell.window, 560, 360);
         app_preferences(s)->cursor_shader_effects_enabled = TRUE;
@@ -317,7 +386,7 @@ step(gpointer unused)
         g_signal_emit_by_name(save, "clicked");
         break;
     }
-    case 16: {
+    case 22: {
         g_assert_null(s->shell.modal_overlay);
         ChronoPreferences *p = app_preferences(s);
         g_assert_cmpuint(p->routine_count, ==, 1);
@@ -330,7 +399,7 @@ step(gpointer unused)
         p->routines[0].due = g_get_real_time() / G_USEC_PER_SEC - 121;
         break;
     }
-    case 17: {
+    case 23: {
         ChronoRoutine *r = &app_preferences(s)->routines[0];
         g_assert_nonnull(s->shell.modal_overlay);
         // An inactive compositor allocation uses the one-second source, not
@@ -363,7 +432,7 @@ step(gpointer unused)
         gtk_gl_area_queue_render(s->shell.gl_area);
         break;
     }
-    case 18: {
+    case 24: {
         Rect r = app_routine_control(&s->presentation.layout, 3);
         ui_handle_press(s, r.x + r.width / 2, r.y + r.height / 2, GDK_BUTTON_PRIMARY, NULL);
         ui_handle_release(s, r.x + r.width / 2, r.y + r.height / 2, GDK_BUTTON_PRIMARY);
@@ -378,42 +447,22 @@ step(gpointer unused)
         g_assert_cmpuint(s->runtime.low_power_source_id, !=, 0);
         break;
     }
-    case 19:
-    case 20:
+    case 25:
+    case 26:
         break; // Allow the one-second background source to run.
-    case 21:
+    case 27:
         g_assert_true(app_preferences(s)->routines[0].overdue);
         gtk_window_present(s->shell.window);
         break;
-    case 22:
+    case 28:
         app_routine_command(s, 3);
         capture_name = "routine-waiting";
         gtk_gl_area_queue_render(s->shell.gl_area);
         break;
-    case 23:
+    case 29:
         focus_test_window();
         g_assert_cmpint(app_preferences(s)->routines[0].deadline, ==, 0);
         g_print("Scheduled editor, panel/background maintenance, persisted overdue, confirmation and tab keys passed\n");
-        break;
-    case 24:
-        start_sweep(.24f);
-        break;
-    case 25:
-        expect_cursor(TRUE);
-        capture_name = "motion-ordinary";
-        gtk_gl_area_queue_render(s->shell.gl_area);
-        break;
-    case 26:
-        break;
-    case 27:
-        start_sweep(1);
-        break;
-    case 28:
-        expect_cursor(TRUE);
-        capture_name = "motion-increased";
-        gtk_gl_area_queue_render(s->shell.gl_area);
-        break;
-    case 29:
         break;
     case 30:
         gtk_window_close(s->shell.window);
@@ -435,6 +484,7 @@ main(void)
 {
     g_assert_nonnull(g_getenv("CHRONOLEDGER_FILE"));
     g_assert_nonnull(g_getenv("CURSOR_STUDY_OUTPUT"));
+    configure_presentation_startup();
     gtk_init();
     GtkApplication* app
         = gtk_application_new("io.github.chronoledger.CursorStudy", G_APPLICATION_NON_UNIQUE);

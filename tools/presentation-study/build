@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""Link development-only measurements to an existing release build."""
+from pathlib import Path
+import argparse, subprocess
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--build', default='build-presentation')
+parser.add_argument('--output', default='/tmp/chronoledger-presentation-validation')
+args = parser.parse_args()
+build = Path(args.build)
+output = Path(args.output); output.mkdir(parents=True, exist_ok=True)
+objects = [str(p) for p in (build / 'chronoledger.p').glob('*.o')
+           if p.name not in ('src_main.c.o', 'src_app_input.c.o')]
+if not objects:
+    parser.error('Build the application first')
+flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk4', 'epoxy', 'json-glib-1.0'], text=True).split()
+subprocess.run(['cc', '-O3', '-g', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Isrc',
+    'tools/presentation-study/benchmark.c', *objects,
+    '-Wl,--whole-archive', str(build / 'libchronoledger-resource-data.a'), '-Wl,--no-whole-archive',
+    '-Wl,--wrap=renderer_draw', *flags, '-lm', '-o', str(output / 'benchmark')], check=True)

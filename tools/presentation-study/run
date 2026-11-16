@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Run six focused samples after arranging a testing interval with the owner."""
+from pathlib import Path
+import argparse, os, subprocess
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output', default='/tmp/chronoledger-presentation-validation')
+parser.add_argument('--start-run', type=int, choices=range(1, 7), default=1,
+                    help='Resume after archiving an interrupted sample; existing output is never overwritten')
+args = parser.parse_args()
+root = Path(args.output)
+# Three pairs; second pair reverses order. Each process samples both active workloads.
+for index, renderer in enumerate(('vulkan', 'default', 'default', 'vulkan', 'vulkan', 'default')):
+    if index + 1 < args.start_run: continue
+    out = root / f'bench-{index + 1}-{renderer}'
+    out.mkdir()  # Refuse to overwrite evidence or reuse a ledger.
+    env = os.environ.copy()
+    env.update(CHRONOLEDGER_FILE=str(out / 'ledger.json'),
+               PRESENTATION_STUDY_OUTPUT=str(out), GDK_BACKEND='wayland')
+    env.pop('GSK_RENDERER', None)
+    if renderer != 'default': env['GSK_RENDERER'] = renderer
+    with (out / 'display.log').open('w') as log:
+        subprocess.run([str(root / 'benchmark')], env=env, stdout=log,
+                       stderr=subprocess.STDOUT, check=True)
+    print(f'Completed {out.name}', flush=True)

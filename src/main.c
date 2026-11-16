@@ -12,6 +12,29 @@
 #define CHRONO_APP_ID "io.github.chronoledger.ChronoLedger"
 #define ANNUNCIATOR_DURATION_US (4 * G_USEC_PER_SEC)
 
+/* Run before GTK/GApplication initialization or worker-thread creation. This
+ * affects this process only; an explicit caller choice always takes priority.
+ * Older GTK releases keep their own defaults because GL renderer selection
+ * changed between releases. Revalidate this preference after GTK upgrades. */
+static void
+configure_presentation_startup(void)
+{
+    const char *origin = "caller";
+#ifdef __linux__
+    if (g_getenv("GSK_RENDERER") == NULL &&
+        gtk_check_version(4, 24, 0) == NULL) {
+        g_setenv("GSK_RENDERER", "gl", FALSE);
+        origin = "application default";
+    }
+#endif
+    const char *requested = g_getenv("GSK_RENDERER");
+    if (requested != NULL)
+        g_print("GTK presentation request: GSK_RENDERER=\"%s\" (%s)\n",
+                requested, origin);
+    else
+        g_print("GTK presentation request: GTK default (GSK_RENDERER unset)\n");
+}
+
 static gint64
 saturating_add_i64(gint64 left, gint64 right)
 {
@@ -491,6 +514,11 @@ activate(GtkApplication *application, gpointer user_data)
                         "Initializing OpenGL/OpenGL ES renderer…",
                         FALSE);
     gtk_window_present(state->shell.window);
+    GskRenderer *presentation_renderer = gtk_native_get_renderer(
+        GTK_NATIVE(state->shell.window));
+    g_print("GTK presentation renderer: %s\n",
+            presentation_renderer != NULL
+                ? G_OBJECT_TYPE_NAME(presentation_renderer) : "unavailable");
     gtk_widget_grab_focus(GTK_WIDGET(state->shell.gl_area));
 
     if (startup_error != NULL) {
@@ -502,10 +530,11 @@ activate(GtkApplication *application, gpointer user_data)
 int
 main(int argc, char **argv)
 {
+    configure_presentation_startup();
+    gboolean isolated = g_getenv("CHRONOLEDGER_FILE") != NULL;
     GtkApplication *application = gtk_application_new(
-        CHRONO_APP_ID,
-        g_getenv("CHRONOLEDGER_FILE") != NULL
-            ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS);
+        isolated ? CHRONO_APP_ID ".Development" : CHRONO_APP_ID,
+        isolated ? G_APPLICATION_NON_UNIQUE : G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(application, "activate", G_CALLBACK(activate), NULL);
     int status = g_application_run(G_APPLICATION(application), argc, argv);
     g_object_unref(application);

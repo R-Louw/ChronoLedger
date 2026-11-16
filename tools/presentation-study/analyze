@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Summarize paired CPU/cadence measurements and enforce acceptance gates."""
+import argparse, csv, statistics
+from pathlib import Path
+p = argparse.ArgumentParser(description=__doc__)
+p.add_argument('--output', default='/tmp/chronoledger-presentation-validation')
+a = p.parse_args(); root = Path(a.output)
+order = ('vulkan', 'default', 'default', 'vulkan', 'vulkan', 'default')
+runs = []
+for i, renderer in enumerate(order):
+    directory = root / f'bench-{i+1}-{renderer}'
+    rows = {r['phase']: r for r in csv.DictReader((directory / 'phases.csv').open())}
+    for name in ('timer', 'motion', 'idle', 'hidden-timer', 'hidden-idle'):
+        r = rows[name]
+        expected_mode = 1 if name == 'hidden-timer' else 2 if name == 'hidden-idle' else 0
+        assert int(r['power_mode']) == expected_mode, (directory.name, name, 'power policy')
+        assert int(r['violations']) == 0, (directory.name, name, 'focus/size changed')
+        if name in ('timer', 'motion'):
+            assert 29.9 <= float(r['seconds']) <= 60.1, (directory.name, name, 'duration')
+        else:
+            assert int(r['draws']) == 0, (directory.name, name, 'unexpected draws')
+    log = (directory / 'display.log').read_text()
+    expected = 'GskVulkanRenderer' if renderer == 'vulkan' else 'GskGLRenderer'
+    assert f'GTK presentation renderer: {expected}' in log, directory.name
+    if renderer == 'default':
+        assert 'GSK_RENDERER="gl" (application default)' in log, directory.name
+    runs.append((renderer, rows))
+for name in ('timer', 'motion'):
+    series = {}
+    for renderer in ('vulkan', 'default'):
+        vals = [float(r[name]['cpu_ms']) / float(r[name]['seconds'])
+                for kind, r in runs if kind == renderer]
+        series[renderer] = vals
+        print(name, renderer, 'CPU ms/s:', ', '.join(f'{v:.2f}' for v in vals),
+              f'; median {statistics.median(vals):.2f}, range {min(vals):.2f}–{max(vals):.2f}')
+    improvements = []
+    for offset in (0, 2, 4):
+        pair = dict(runs[offset:offset+2]); v, g = pair['vulkan'][name], pair['default'][name]
+        assert (v['width'], v['height']) == (g['width'], g['height']), 'mismatched allocation'
+        vc, gc = float(v['cpu_ms'])/float(v['seconds']), float(g['cpu_ms'])/float(g['seconds'])
+        gain = 1 - gc/vc; improvements.append(gain)
+        print(f'  pair {offset//2+1}: saved {vc-gc:.2f} ms/s ({gain*100:.1f}%)')
+        assert gain >= .30, (name, 'CPU gate failed', gain)
+        if name == 'motion':
+            vr, gr = float(v['draws'])/float(v['seconds']), float(g['draws'])/float(g['seconds'])
+            print(f'    draws/s {vr:.2f} -> {gr:.2f}; p95 frame ms {v["frame_p95_ms"]} -> {g["frame_p95_ms"]}; event age ms {v["input_age_p95_ms"]} -> {g["input_age_p95_ms"]}')
+            assert gr >= .95 * vr, 'cadence regressed'
+            for key in ('frame_p95_ms', 'input_age_p95_ms'):
+                assert float(g[key]) <= float(v[key]) + 2, (key, 'regression')
+    # The complete ranges must separate, not merely one favorable average.
+    assert max(series['default']) < min(series['vulkan']), (name, 'variation overlaps')
+print('PASS: paired CPU, cadence, allocation, focus and settled/hidden draw gates')

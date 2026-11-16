@@ -13,3 +13,19 @@ mv -Tf rollback.new current
 ```
 
 Launch from Rofi again. The first migration also retains the old launcher executable under `pre-migration`, referenced by `previous`; it is a recovery copy of the former installation, not a newly validated release. Future promotions set `previous` to the prior validated release. Releases are retained; remove obsolete release directories manually after verifying the current version. Rollback does not change ledger data. Back up the ledger before downgrading: older binaries may ignore newly added local routine/presentation state. Restore the backed-up Lua file and desktop entry to undo desktop integration, taking care to preserve any subsequent personal edits.
+
+## Presentation preference and restart verification
+
+The executable supplies its own GTK GL presentation preference on Linux with runtime GTK >= 4.24 when `GSK_RENDERER` is absent. Both existing desktop launch paths therefore receive the same policy without editing the Rofi entry, Hyprland Lua, session environment or GPU settings. Existing explicit caller settings win. The application renderer and shaders remain OpenGL/GLES. Older GTK runtimes and other platforms retain GTK defaults; the minimum GTK version is still 4.12.
+
+To use the previous presentation choice for one newly started installed process:
+
+```sh
+GSK_RENDERER=vulkan ~/.local/share/chronoledger-install/current/bin/chronoledger
+```
+
+This does not change an already running process: single-instance activation may simply present that process. Promotion is separate from restart verification. Leave production running during validation and promotion; verify the actual installed GSK renderer after the owner's coordinated normal restart. Startup output distinguishes the requested renderer from the renderer GTK actually realized. GTK owns fallback if initialization fails; driver crashes require a new launch or the executable rollback above. GTK's environment controls are not API-stable, so revalidate on GTK/driver upgrades.
+
+For isolated direct-executable checks, use a fresh `CHRONOLEDGER_FILE`; these launches use `.Development` identity and non-unique registration. Never use the personal ledger for a validation launch. No new XDG/systemd autostart or launcher wrapper is needed.
+
+The presentation candidate remains held for a GTK 4.24.1 native chooser initialization/close race with either presentation backend. CPU, appearance and cadence checks passed; the separate lifecycle gate must pass before promotion. See [candidate validation results](VALIDATION.md#candidate-results-and-promotion-hold--2026-11-16). Successful compilation is distinct from eligible promotion and installed-instance verification.

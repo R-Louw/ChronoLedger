@@ -138,9 +138,15 @@ The primary file is resolved through `chrono_default_data_path()`. Writes use a 
 
 If the primary file cannot be read or validated, ChronoLedger enters a protected read-only recovery state. Automatic saves and document edits are blocked until the user explicitly imports a valid replacement. A failed replacement restores the previous ledger and recovery lock. Import replaces only ledger records and preserves local preferences; export includes both as a complete backup.
 
+## GTK presentation selection
+
+Before GTK/GApplication initialization or worker creation, `main.c` applies a process-local `GSK_RENDERER=gl` default on Linux with runtime GTK >= 4.24, only when the variable is absent. Caller values are preserved verbatim. GTK >= 4.12 remains supported; earlier GTK runtimes and other platforms retain GTK selection. The startup log distinguishes the request's origin from the actual realized native GSK renderer. GTK owns realization fallback; the application does not swap presentation renderers or restart itself. Existing GL diagnostics and semantic maintenance continue to handle application rendering failure.
+
+Rofi, Hyprland startup and direct execution share this executable-level policy. It introduces no persisted preference, shader change, new scheduling source or desktop environment change. Explicit `CHRONOLEDGER_FILE` launches retain non-unique behavior and use the separate `.Development` application identity. Environment renderer controls are GTK debugging interfaces and need revalidation after dependency upgrades.
+
 ## Rendering and invalidation
 
-The application scene is event-driven rather than continuously redrawn. Static and dynamic dirty flags control Cairo reconstruction and GPU cache refresh. Once a frame is accepted, `main.c` captures one `AppViewSnapshot`, asks the UI layer to prepare CPU surfaces, then submits one immutable `RendererFrameInput`. Cairo construction and GPU geometry/compositing therefore receive the same timestamp and model snapshot. The renderer representation is private to the renderer subsystem; cache, CRT timing, and cursor-history state are mutated only through renderer functions, and UI/lifecycle code use renderer-owned predicates and commands. Native frame-clock work continues only while one of these conditions requires it:
+The application scene is event-driven rather than continuously redrawn. Static and dynamic dirty flags control Cairo reconstruction and GPU cache refresh. Once a frame is accepted, `main.c` captures one `AppViewSnapshot`, asks the UI layer to prepare CPU surfaces, then submits one immutable `RendererFrameInput`. Cairo construction and GPU geometry/compositing therefore receive the same timestamp and model snapshot. The renderer representation is private to the renderer subsystem; cache, CRT timing, and cursor-history state are mutated only through renderer functions, and UI/lifecycle code use renderer-owned predicates and commands. Render requests occur only while one of these conditions requires them; the interactive frame-clock callback itself remains installed even after draws settle:
 
 - scene or cache invalidation
 - pointer movement or finite cross-afterglow decay, including one final cleanup frame

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Prefer process-local GTK GL presentation on Linux with runtime GTK >= 4.24 when the caller has not set `GSK_RENDERER`; log requested and realized renderers and retain GTK fallback. Isolate explicit-file development launches under a separate application ID.
+
 - Add fixed daily clock confirmations within Routines, with configurable windows, persistent overdue items, and one-click confirmation independent of allocation timers.
 - Put Routines on F3 and Calibration on F4 while preserving the meaning of saved tab selections.
 

@@ -46,6 +46,12 @@ make clean
 
 `run.sh` configures or reconfigures a release build, compiles it, and starts the application.
 
+## GTK presentation
+
+On Linux with runtime GTK 4.24 or newer, ChronoLedger prefers GTK GL presentation by setting `GSK_RENDERER=gl` in its own process before GTK initialization, only if the variable is absent. An explicit caller value, including an empty value, is preserved. Older GTK releases and other platforms retain GTK defaults; the GTK 4.12 minimum is unchanged. The application still uses its existing OpenGL/GLES shaders and effects. Startup output reports the request and actual GSK renderer separately.
+
+For this machine's previous presentation path, launch a new process with `GSK_RENDERER=vulkan ./build/chronoledger` (or the installed executable). This is a per-launch override, not a global setting or a saved preference. GTK can fall back if the requested renderer cannot initialize; that does not provide recovery from a driver crash or make an unavailable application GL context usable. Revalidate the preference after GTK/driver updates because [GTK's environment controls](https://docs.gtk.org/gtk4/running.html) are not API-stable. See [presentation validation](tools/presentation-study/README.md).
+
 ## Data
 
 The default ledger is stored at:
@@ -54,7 +60,7 @@ The default ledger is stored at:
 $XDG_DATA_HOME/chronoledger/ledger.json
 ```
 
-When `XDG_DATA_HOME` is unset, GLib resolves the normal per-user data directory. Set `CHRONOLEDGER_FILE` to use a different file.
+When `XDG_DATA_HOME` is unset, GLib resolves the normal per-user data directory. Set `CHRONOLEDGER_FILE` to use a different file. These launches use the non-unique `io.github.chronoledger.ChronoLedger.Development` identity, isolating test registration from the normal production application.
 
 Persistence uses schema version 7 and reads versions 1–6 with a zero subsecond remainder. Pausing, switching allocations, and saving preserve fractional elapsed time. Older application versions cannot read schema 7; keep a backup before downgrading. Imports are limited to 16 MiB, 10,000 tasks, and 128 levels of JSON nesting. Every supported document must contain a `tasks` array, including an explicitly empty ledger. Duplicate JSON members, out-of-range numbers, and NUL characters are rejected before parsing can change their values.
 
