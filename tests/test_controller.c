@@ -5,6 +5,7 @@
 #include <math.h>
 
 static guint shown_alerts;
+static guint requested_closes;
 
 static void
 capture_alert(GtkAlertDialog *dialog, GtkWindow *window)
@@ -14,11 +15,23 @@ capture_alert(GtkAlertDialog *dialog, GtkWindow *window)
     ++shown_alerts;
 }
 
+static void
+capture_close(GtkWindow *window)
+{
+    AppState *state = g_object_get_data(G_OBJECT(window), "chronoledger-state");
+    g_assert_nonnull(state);
+    g_assert_false(state->shell.file_dialog_pending);
+    g_assert_false(state->shell.close_after_file_dialog);
+    ++requested_closes;
+}
+
 /* Include the controller translation units to exercise their private async
  * completions without exporting callback internals in the application API.
  * All other application modules are linked normally. */
 #define gtk_alert_dialog_show capture_alert
+#define gtk_window_close capture_close
 #include "../src/app_dialogs.c"
+#undef gtk_window_close
 #undef gtk_alert_dialog_show
 #define main chronoledger_application_main
 #include "../src/main.c"
@@ -57,6 +70,7 @@ setup(Fixture *fixture, gconstpointer unused)
     fixture->window = g_object_new(G_TYPE_OBJECT, NULL);
     g_object_set_data(fixture->window, "chronoledger-state", fixture->state);
     shown_alerts = 0;
+    requested_closes = 0;
 }
 
 static void
@@ -231,6 +245,86 @@ test_dialog_cancellation(Fixture *fixture, gconstpointer unused)
     g_object_unref(dialog);
 }
 
+static void
+test_dialog_deferred_close(Fixture *fixture, gconstpointer unused)
+{
+    (void)unused;
+    AppState *state = fixture->state;
+    GtkFileDialog *dialog = gtk_file_dialog_new();
+    for (guint operation = 0; operation < 2; ++operation) {
+        for (guint failure = 0; failure < 2; ++failure) {
+            state->shell.file_dialog_pending = TRUE;
+            state->session.next_checkpoint_us = 1234;
+            g_assert_true(on_close_request(NULL, state));
+            g_assert_true(on_close_request(NULL, state));
+            g_assert_true(state->shell.close_after_file_dialog);
+            g_assert_false(state->shell.closing);
+            g_assert_cmpint(state->session.next_checkpoint_us, ==, 1234);
+            /* Repeated shortcuts must not launch another native operation. */
+            app_request_import(state);
+            app_request_export(state);
+            assert_primary_protected(fixture);
+
+            GTask *result = g_task_new(dialog, NULL, NULL, NULL);
+            g_task_set_source_tag(result, operation == 0
+                ? G_GNUC_EXTENSION (gpointer)gtk_file_dialog_open
+                : G_GNUC_EXTENSION (gpointer)gtk_file_dialog_save);
+            g_task_return_new_error(result, GTK_DIALOG_ERROR,
+                failure ? GTK_DIALOG_ERROR_FAILED : GTK_DIALOG_ERROR_DISMISSED,
+                "Native operation finished");
+            GAsyncReadyCallback callback = operation == 0
+                ? on_import_file_selected : on_export_file_selected;
+            callback(G_OBJECT(dialog), G_ASYNC_RESULT(result),
+                     g_object_ref(fixture->window));
+            g_object_unref(result);
+            g_assert_false(state->shell.file_dialog_pending);
+            g_assert_false(state->shell.close_after_file_dialog);
+            g_assert_cmpuint(requested_closes, ==, operation * 2 + failure + 1);
+            g_assert_cmpuint(shown_alerts, ==, 0);
+        }
+    }
+    g_object_unref(dialog);
+
+    /* The deferred retry still uses the ordinary save veto, not destruction. */
+    state->session.data_load_failed = FALSE;
+    g_free(state->session.data_path);
+    state->session.data_path = g_build_filename(fixture->obstacle, "ledger.json", NULL);
+    g_assert_true(on_close_request(NULL, state));
+    g_assert_false(state->shell.closing);
+    g_assert_cmpuint(shown_alerts, ==, 1);
+    assert_primary_protected(fixture);
+}
+
+static void
+mark_finalized(gpointer data, GObject *object)
+{
+    (void)object;
+    *(gboolean *)data = TRUE;
+}
+
+static void
+test_dialog_detached_completion(void)
+{
+    for (guint operation = 0; operation < 2; ++operation) {
+        gboolean finalized = FALSE;
+        GObject *window = g_object_new(G_TYPE_OBJECT, NULL);
+        g_object_weak_ref(window, mark_finalized, &finalized);
+        GtkFileDialog *dialog = gtk_file_dialog_new();
+        GTask *result = g_task_new(dialog, NULL, NULL, NULL);
+        g_task_set_source_tag(result, operation == 0
+            ? G_GNUC_EXTENSION (gpointer)gtk_file_dialog_open
+            : G_GNUC_EXTENSION (gpointer)gtk_file_dialog_save);
+        g_task_return_new_error(result, GTK_DIALOG_ERROR,
+                               GTK_DIALOG_ERROR_CANCELLED, "Detached window");
+        GAsyncReadyCallback callback = operation == 0
+            ? on_import_file_selected : on_export_file_selected;
+        callback(G_OBJECT(dialog), G_ASYNC_RESULT(result), window);
+        g_assert_true(finalized);
+        g_object_unref(result);
+        g_object_unref(dialog);
+    }
+}
+
 static void test_panel_result_adapter(void)
 {
     GtkAlertDialog *dialog = gtk_alert_dialog_new("Confirm");
@@ -364,6 +458,8 @@ main(int argc, char **argv)
     g_test_add("/controller/recovery-mutations", Fixture, NULL, setup, test_recovery_mutations, teardown);
     g_test_add("/controller/recovery-import", Fixture, NULL, setup, test_recovery_import, teardown);
     g_test_add("/controller/dialog-cancellation", Fixture, NULL, setup, test_dialog_cancellation, teardown);
+    g_test_add("/controller/dialog-deferred-close", Fixture, NULL, setup, test_dialog_deferred_close, teardown);
+    g_test_add_func("/controller/dialog-detached-completion", test_dialog_detached_completion);
     g_test_add_func("/controller/panel-result-adapter", test_panel_result_adapter);
     g_test_add_func("/controller/curvature-mapping", test_curvature_mapping);
     g_test_add("/controller/manual-profile-override", Fixture, NULL, setup, test_manual_profile_override, teardown);

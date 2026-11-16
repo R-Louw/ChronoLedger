@@ -80,6 +80,8 @@ Active tasks are restored as paused because monotonic timestamps cannot be carri
 - Mouse wheel, `Page Up` / `Page Down`, `Home` / `End`: scroll Calibration when its controls exceed the tile height.
 - `Escape`: close the window or leave the active text editor.
 
+If import/export is open when the main window receives a close request, dismiss or complete the native chooser to finish closing. The pending selection is discarded and normal save-on-close still applies.
+
 ## Source layout
 
 ```text

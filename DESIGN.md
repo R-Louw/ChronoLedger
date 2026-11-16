@@ -132,6 +132,14 @@ Legacy compatibility is limited to recognized persisted fields. Bundled sample r
 - Ledger replacement candidates are consumed by one controller transaction that saves, commits, or restores the previous owned store.
 - Cursor motion and cross-sample buffers are fixed-size arrays embedded in `AppInputState`; `cursor_state.c` mutates them synchronously and no producer retains access outside the main thread.
 
+### Native file chooser shutdown
+
+Import/export allow one pending `GtkFileDialog` per window, marked before calling GTK. A parent close request while it is pending is deferred and coalesced, before the normal save/close path runs. The parent stays realized and ordinary timer/checkpoint maintenance continues until the native chooser responds. Dismiss or complete the chooser to finish closing. The completion always consumes GTK's result, clears the pending flags, discards any selection made after a close request, and retries ordinary close (including its save-failure veto). Without a pending close, selection, confirmation, cancellation and error behavior is unchanged.
+
+This is separate from presentation selection. Retaining a window object alone does not preserve its surface: GTK 4.24.1's Wayland portal path asynchronously exports the parent handle, and destroying the parent during export can crash GTK. Cancelling `GtkFileDialog` during initialization can also clear portal data before export completes; its public API exposes no readiness barrier. The application therefore does not force cancellation, use a timeout, change native chooser backends or call private GTK APIs. A stalled native service can delay closure until it returns; there is no unsafe destruction deadline.
+
+Both callbacks retain the window and resolve its object data on completion, including detached/closing-state handling. The two pending flags are main-thread, window-owned state; they add no source, worker, application hold or independent lifetime. The chooser's native transient/modal behavior remains GTK-owned.
+
 ## Persistence behavior
 
 The primary file is resolved through `chrono_default_data_path()`. Writes use a bounded serialized representation and `GFile` replacement semantics. Save failures remain visible and the in-memory store remains available for retry.

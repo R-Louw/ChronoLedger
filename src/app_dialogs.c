@@ -59,6 +59,35 @@ dialog_was_cancelled(const GError *error)
            g_error_matches(error, GTK_DIALOG_ERROR, GTK_DIALOG_ERROR_DISMISSED);
 }
 
+gboolean
+app_defer_close_for_file_dialog(AppState *state)
+{
+    if (!state->shell.file_dialog_pending)
+        return FALSE;
+    state->shell.close_after_file_dialog = TRUE;
+    return TRUE;
+}
+
+/* A retained GtkWindow does not keep its surface realized. In GTK's native
+ * portal path, parent-handle export can still be pending after open/save
+ * returns; destroying the parent or cancelling the operation then is unsafe
+ * on GTK 4.24.1. Let the native chooser respond, consume its result, and only
+ * then retry the ordinary save/close path. No timeout or private GTK API is
+ * used. A selection arriving after a close request must not import/export. */
+static gboolean
+file_dialog_completed(GtkWindow *window)
+{
+    AppState *state = g_object_get_data(G_OBJECT(window), "chronoledger-state");
+    if (state == NULL)
+        return FALSE;
+    state->shell.file_dialog_pending = FALSE;
+    if (!state->shell.close_after_file_dialog)
+        return FALSE;
+    state->shell.close_after_file_dialog = FALSE;
+    gtk_window_close(window);
+    return TRUE;
+}
+
 static void
 configure_json_file_dialog(GtkFileDialog *dialog, const char *accept_label)
 {
@@ -152,6 +181,12 @@ on_import_file_selected(GObject *source_object,
     GFile *file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source_object),
                                               result,
                                               &error);
+    if (file_dialog_completed(window)) {
+        g_clear_object(&file);
+        g_clear_error(&error);
+        g_object_unref(window);
+        return;
+    }
     if (file == NULL) {
         if (error != NULL &&
             !dialog_was_cancelled(error) &&
@@ -205,11 +240,12 @@ void
 app_request_import(AppState *state)
 {
     g_return_if_fail(state != NULL);
-    if (state->shell.closing)
+    if (state->shell.closing || state->shell.file_dialog_pending)
         return;
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Import ChronoLedger JSON");
     configure_json_file_dialog(dialog, "Import");
+    state->shell.file_dialog_pending = TRUE;
     gtk_file_dialog_open(dialog,
                          state->shell.window,
                          NULL,
@@ -229,6 +265,12 @@ on_export_file_selected(GObject *source_object,
     GFile *file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source_object),
                                               result,
                                               &error);
+    if (file_dialog_completed(window)) {
+        g_clear_object(&file);
+        g_clear_error(&error);
+        g_object_unref(window);
+        return;
+    }
     if (file == NULL) {
         if (error != NULL &&
             !dialog_was_cancelled(error) &&
@@ -266,12 +308,13 @@ void
 app_request_export(AppState *state)
 {
     g_return_if_fail(state != NULL);
-    if (state->shell.closing)
+    if (state->shell.closing || state->shell.file_dialog_pending)
         return;
     GtkFileDialog *dialog = gtk_file_dialog_new();
     gtk_file_dialog_set_title(dialog, "Export ChronoLedger JSON");
     configure_json_file_dialog(dialog, "Export");
     gtk_file_dialog_set_initial_name(dialog, "chronoledger-export.json");
+    state->shell.file_dialog_pending = TRUE;
     gtk_file_dialog_save(dialog,
                          state->shell.window,
                          NULL,

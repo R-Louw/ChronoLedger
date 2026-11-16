@@ -25,6 +25,8 @@ typedef struct {
     gboolean window_active;
     gboolean window_suspended;
     gboolean closing;
+    gboolean file_dialog_pending;
+    gboolean close_after_file_dialog;
 } AppShellState;
 
 /* User-visible mode, layout, and CRT presentation state. */

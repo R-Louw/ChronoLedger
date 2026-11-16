@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""Hyprland display gate using the actual executable, native chooser and session bus."""
+import argparse
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import time
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--executable', default='build-presentation/chronoledger')
+parser.add_argument('--probe', default='/tmp/chronoledger-chooser-fix/probe.so')
+parser.add_argument('--output', required=True)
+parser.add_argument('--renderer', choices=['gl', 'vulkan'], required=True)
+parser.add_argument('--operation', choices=['import', 'export'], required=True)
+parser.add_argument('--phase', choices=['initializing', 'presented', 'normal'], required=True)
+parser.add_argument('--backend', choices=['wayland', 'x11'], default='wayland')
+parser.add_argument('--response', choices=['cancel', 'select'], default='cancel')
+parser.add_argument('--sanitize', action='store_true')
+parser.add_argument('--no-portals', action='store_true')
+parser.add_argument('--desktop-gl', action='store_true')
+parser.add_argument('--save-failure', action='store_true')
+args = parser.parse_args()
+if args.save_failure and (args.phase == 'normal' or args.response != 'cancel'):
+    parser.error('--save-failure requires a deferred-close phase with cancellation')
+out = Path(args.output).resolve()
+out.mkdir(parents=True, exist_ok=False)
+env = os.environ.copy()
+env.update(CHRONOLEDGER_FILE=str(out / 'ledger.json'), GSK_RENDERER=args.renderer,
+    GDK_BACKEND=args.backend, G_DEBUG='fatal-criticals',
+    CHOOSER_STUDY_PHASE=args.phase, CHOOSER_STUDY_OPERATION=args.operation)
+if args.save_failure:
+    env['CHOOSER_STUDY_SAVE_FAILURE'] = '1'
+    (out / 'ledger.json').write_text('{"schema_version":7,"tasks":[]}\n')
+selection = out / 'selected.json'
+if args.response == 'select':
+    env['CHOOSER_STUDY_SELECTION'] = str(selection)
+    if args.operation == 'import':
+        selection.write_text(json.dumps({'schema_version': 7, 'tasks': [{
+            'id': 'chooser-test-task', 'title': 'Chooser native selection',
+            'estimate_seconds': 60, 'allocated_seconds': 60, 'elapsed_seconds': 0,
+            'elapsed_remainder_us': 0, 'remaining_seconds': 60, 'status': 'ready',
+            'created_at_unix': 1700000000, 'completed_at_unix': 0}]}) + '\n')
+env['LD_PRELOAD'] = ':'.join(filter(None, [env.get('LD_PRELOAD'), str(Path(args.probe).resolve())]))
+if args.sanitize:
+    asan = subprocess.check_output(['cc', '-print-file-name=libasan.so'], text=True).strip()
+    env['LD_PRELOAD'] = asan + ':' + env['LD_PRELOAD']
+    env['ASAN_OPTIONS'] = 'detect_leaks=0:halt_on_error=1:abort_on_error=1'
+    env['UBSAN_OPTIONS'] = 'halt_on_error=1:print_stacktrace=1'
+debug = []
+if args.no_portals:
+    debug.append('no-portals')
+if args.desktop_gl:
+    debug.append('gl-prefer-gl')
+if debug:
+    env['GDK_DEBUG'] = ','.join(debug)
+for name in ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME', 'XDG_STATE_HOME']:
+    directory = out / name.lower()
+    directory.mkdir()
+    env[name] = str(directory)
+logpath = out / 'display.log'
+
+def clients():
+    return json.loads(subprocess.check_output(['hyprctl', '-j', 'clients'], text=True))
+
+def dispatch(name, fields):
+    fields = ', '.join(k + ' = ' + json.dumps(v) for k, v in fields.items())
+    code = 'hl.dispatch(hl.dsp.' + name + '({' + fields + '}))'
+    result = subprocess.check_output(['hyprctl', 'eval', code], text=True).strip()
+    assert result == 'ok', result
+
+def wait_for(predicate, process, timeout=12):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = predicate()
+        if result:
+            return result
+        if process.poll() is not None:
+            raise RuntimeError(f'exited early: {process.returncode}\n{logpath.read_text()}')
+        time.sleep(.05)
+    raise RuntimeError(f'timed out\n{logpath.read_text()}')
+
+with logpath.open('w') as log:
+    process = subprocess.Popen([args.executable], env=env, stdout=log, stderr=subprocess.STDOUT)
+    try:
+        own = wait_for(lambda: next((c for c in clients() if c['pid'] == process.pid), None), process)
+        # XWayland exposes the executable WM_CLASS; begin() separately asserts
+        # the actual GApplication .Development identity in both backends.
+        expected_class = 'chronoledger' if args.backend == 'x11' else 'io.github.chronoledger.ChronoLedger.Development'
+        assert own['class'] == expected_class, own
+        assert own['xwayland'] == (args.backend == 'x11'), own
+        target = 'address:' + own['address']
+        if args.save_failure:
+            # Startup has loaded valid data; only the next save should fail.
+            (out / 'ledger.json').unlink()
+            (out / 'ledger.json').mkdir()
+        dispatch('focus', {'window': target})
+        time.sleep(.2)
+        dispatch('send_shortcut', {'window': target, 'mods': 'CTRL',
+            'key': 'i' if args.operation == 'import' else 'e'})
+        wait_for(lambda: 'STUDY native chooser initiated' in logpath.read_text(), process)
+        title = f'ChronoLedger chooser test {process.pid}'
+        chooser = wait_for(lambda: next((c for c in clients() if c['title'] == title), None), process)
+        (out / 'chooser.json').write_text(json.dumps(chooser, indent=2) + '\n')
+        if args.phase == 'presented':
+            process.send_signal(signal.SIGUSR1)
+        if args.phase != 'normal':
+            wait_for(lambda: 'STUDY close deferred' in logpath.read_text(), process)
+        # Dismiss the actual chooser only after observing the pending close and
+        # real presentation. No forced GCancellable or private session bus.
+        chooser_target = 'address:' + chooser['address']
+        dispatch('focus', {'window': chooser_target})
+        time.sleep(.15)
+        if args.response == 'select':
+            time.sleep(.7) # Native chooser async directory population, test only.
+            if args.operation == 'import':
+                dispatch('send_shortcut', {'window': chooser_target, 'mods': 'CTRL', 'key': 'l'})
+                dispatch('send_shortcut', {'window': chooser_target, 'mods': 'CTRL', 'key': 'a'})
+                symbols = {'/': 'slash', '-': 'minus', '.': 'period', '_': 'underscore'}
+                for char in str(selection):
+                    assert char.islower() or char.isdigit() or char in symbols, char
+                    dispatch('send_shortcut', {'window': chooser_target, 'mods': '',
+                        'key': symbols.get(char, char)})
+        dispatch('send_shortcut', {'window': chooser_target, 'mods': '',
+            'key': 'Return' if args.response == 'select' else 'Escape'})
+        assert process.wait(timeout=12) == 0, logpath.read_text()
+        assert 'STUDY PASS:' in logpath.read_text(), logpath.read_text()
+        assert not any(c['title'] == title or c['pid'] == process.pid for c in clients())
+        assert (out / 'ledger.json').is_file()
+        saved = json.loads((out / 'ledger.json').read_text())
+        if args.operation == 'import' and args.response == 'select':
+            assert len(saved['tasks']) == (1 if args.phase == 'normal' else 0), saved
+        if args.operation == 'export':
+            if args.response == 'select' and args.phase == 'normal':
+                assert json.loads(selection.read_text())['tasks'] == []
+            else:
+                assert not selection.exists(), 'Selection after close must not export'
+        print(f'PASS {args.backend} {args.renderer} {args.operation} {args.phase}', flush=True)
+    finally:
+        if process.poll() is None:
+            for client in clients():
+                if client['title'] == f'ChronoLedger chooser test {process.pid}':
+                    dispatch('close', {'window': 'address:' + client['address']})
+            # Only this isolated child is stopped on a failed test; never a
+            # production process or shared portal/accessibility service.
+            process.terminate()
+            process.wait(timeout=5)

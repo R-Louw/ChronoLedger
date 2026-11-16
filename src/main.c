@@ -319,6 +319,9 @@ on_close_request(GtkWindow *window, gpointer user_data)
     if (state->shell.closing)
         return FALSE;
 
+    if (app_defer_close_for_file_dialog(state))
+        return TRUE;
+
     app_capture_presentation(state);
 
     if (!state->session.data_load_failed && !app_save_state(state)) {

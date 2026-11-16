@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Defer parent closure until a pending native import/export chooser responds, avoiding the GTK Wayland parent-handle export race; discard late selections and retain normal save-on-close handling.
+
 - Prefer process-local GTK GL presentation on Linux with runtime GTK >= 4.24 when the caller has not set `GSK_RENDERER`; log requested and realized renderers and retain GTK fallback. Isolate explicit-file development launches under a separate application ID.
 
 - Add fixed daily clock confirmations within Routines, with configurable windows, persistent overdue items, and one-click confirmation independent of allocation timers.

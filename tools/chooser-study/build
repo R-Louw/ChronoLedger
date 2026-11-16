@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+"""Build the display-only native chooser interposer outside the installation."""
+import argparse
+from pathlib import Path
+import subprocess
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--output', default='/tmp/chronoledger-chooser-fix/probe.so')
+args = parser.parse_args()
+Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+flags = subprocess.check_output(['pkg-config', '--cflags', '--libs', 'gtk4', 'json-glib-1.0'], text=True).split()
+subprocess.run(['cc', '-g', '-O1', '-shared', '-fPIC', '-Wall', '-Wextra', '-Werror',
+    '-Isrc', 'tools/chooser-study/probe.c', *flags, '-ldl', '-o', args.output], check=True)
