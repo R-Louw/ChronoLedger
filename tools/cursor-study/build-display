@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""Build an isolated real-display study; run with explicit temporary data/output."""
+from pathlib import Path
+import subprocess,sys
+build='build-asan' if '--asan' in sys.argv else 'build-promote' if '--release' in sys.argv else 'build-agent'
+out=Path('/tmp/chronoledger-cursor-after');out.mkdir(exist_ok=True)
+objects=[str(p) for p in Path(build+'/chronoledger.p').glob('*.o') if p.name not in ['src_main.c.o','src_app_input.c.o']]
+flags=subprocess.check_output(['pkg-config','--cflags','--libs','gtk4','epoxy','json-glib-1.0'],text=True).split()
+subprocess.run(['cc','-std=c11','-g','-Isrc',*(['-fsanitize=address,undefined','-fno-omit-frame-pointer'] if '--asan' in sys.argv else []),'tools/cursor-study/display.c',*objects,'-Wl,--whole-archive',build+'/libchronoledger-resource-data.a','-Wl,--no-whole-archive',*flags,'-lm','-o',str(out/('display-asan' if '--asan' in sys.argv else 'display'))],check=True)

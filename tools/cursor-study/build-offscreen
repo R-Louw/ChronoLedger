@@ -1,0 +1,21 @@
+#!/bin/sh
+# Run from the repository root after ./tools/check. Output stays outside the tree.
+set -eu
+out=${1:-/tmp/chronoledger-cursor-after}
+mkdir -p "$out"
+cc -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections -Isrc \
+ tools/cursor-study/offscreen.c src/renderer_cursor.c src/renderer_support.c \
+ src/renderer_scene.c src/renderer_context.c src/renderer_shaders.c \
+ src/cursor_state.c src/shader_profile.c \
+ -Wl,--whole-archive build-agent/libchronoledger-resource-data.a -Wl,--no-whole-archive \
+ $(pkg-config --cflags --libs gtk4 epoxy egl json-glib-1.0) -lm -o "$out/offscreen"
+for hz in 60 144; do
+ for persistence in .24 1; do
+  EGL_PLATFORM=surfaceless "$out/offscreen" "$out/$hz-$persistence.rgba" "$hz" "$persistence" 1
+  ffmpeg -v error -y -f rawvideo -pixel_format rgba -video_size 800x360 -framerate "$hz" \
+   -i "$out/$hz-$persistence.rgba" -c:v libx264 -crf 16 -pix_fmt yuv420p "$out/$hz-$persistence.mp4"
+ done
+done
+EGL_PLATFORM=surfaceless "$out/offscreen" "$out/bypass.rgba" 60 1 0
+
+CURSOR_STUDY_STALL=1 EGL_PLATFORM=surfaceless "$out/offscreen" "$out/stall.rgba" 60 1 1
